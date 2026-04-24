@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">PDF Reader</string>
+    <string name="open_pdf">Open</string>
+    <string name="prev">Prev</string>
+    <string name="next">Next</string>
+    <string name="annotate">Annotate</string>
+    <string name="save">Save</string>
+    <string name="share">Share</string>
+    <string name="annotation_hint">Type annotation, then tap on the page</string>
+</resources>
