@@ -79,8 +79,43 @@ Object.entries(DISCIPLINES).forEach(([key, d]) => {
 
 // ---- Sizing calculator ----
 buildSizingInputs();
+wireDiagramHighlight();
 els.calcBtn.addEventListener('click', onCalculate);
 els.sizeSaveBtn.addEventListener('click', onSizeSave);
+
+// Highlight the matching diagram line, instruction, and field together.
+function highlight(key, on) {
+  const panel = $('#panel-sizing');
+  panel.querySelectorAll(`.m[data-m="${key}"]`).forEach((g) => g.classList.toggle('hl', on));
+  panel.querySelectorAll(`.guide-list li[data-m="${key}"]`).forEach((li) => li.classList.toggle('lit', on));
+  ['size', 'cur'].forEach((p) => {
+    const el = document.getElementById(`${p}-${key}`);
+    if (el) el.closest('.field').classList.toggle('lit', on);
+  });
+  // A diagram dims its other lines whenever any one is active.
+  panel.querySelectorAll('.guide-img').forEach((svg) =>
+    svg.classList.toggle('focusing', !!svg.querySelector('.m.hl')));
+}
+
+function wireDiagramHighlight() {
+  const panel = $('#panel-sizing');
+  // Focusing / hovering a field lights up the diagram.
+  panel.querySelectorAll('[data-key]').forEach((el) => {
+    const key = el.dataset.key;
+    const field = el.closest('.field');
+    const on = () => highlight(key, true);
+    const off = () => highlight(key, false);
+    el.addEventListener('focus', on);
+    el.addEventListener('blur', off);
+    if (field) { field.addEventListener('mouseenter', on); field.addEventListener('mouseleave', off); }
+  });
+  // Hovering a diagram line or an instruction lights up the field.
+  panel.querySelectorAll('.m[data-m], .guide-list li[data-m]').forEach((g) => {
+    const key = g.dataset.m;
+    g.addEventListener('mouseenter', () => highlight(key, true));
+    g.addEventListener('mouseleave', () => highlight(key, false));
+  });
+}
 
 function buildSizingInputs() {
   els.sizeBody.innerHTML = Object.entries(SIZING_FIELDS).map(([key, f]) => fieldHtml('size', key, f)).join('');

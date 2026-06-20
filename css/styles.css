@@ -129,10 +129,20 @@ tr.st-low, tr.st-high { background: rgba(245,166,35,0.06); }
 .guide-block { margin: 6px 0 10px; }
 .guide-block h4 { margin: 10px 0 8px; font-size: 15px; }
 .guide-row { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
-.guide-img { width: 300px; max-width: 100%; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 8px; }
+.guide-img { width: 340px; max-width: 100%; height: auto; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 8px; }
 .guide-list { margin: 0; padding-left: 18px; flex: 1; min-width: 240px; font-size: 13.5px; color: var(--muted); }
 .guide-list li { margin-bottom: 7px; }
+.guide-list li[data-m] { cursor: help; }
 .guide-list b { color: var(--text); }
+
+/* Interactive measurement highlighting */
+.guide-img .m { transition: opacity .15s ease; cursor: help; }
+.guide-img.focusing .m:not(.hl) { opacity: .18; }
+.guide-img .m.hl line, .guide-img .m.hl path { stroke-width: 4px; }
+.guide-img .m.hl text { font-weight: 700; }
+.guide-list li.lit b { color: var(--accent); }
+.sizing-grid .field.lit > span { color: var(--accent); }
+.sizing-grid .field.lit input, .sizing-grid .field.lit select { border-color: var(--accent); }
 
 .recs { display: grid; gap: 10px; margin-top: 8px; }
 .rec { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--muted); border-radius: 10px; padding: 12px 14px; }
