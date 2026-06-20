@@ -17,6 +17,7 @@
     </div>
     <nav class="tabs">
       <button class="tab active" data-tab="capture">Capture</button>
+      <button class="tab" data-tab="sizing">Calculator</button>
       <button class="tab" data-tab="history">History</button>
       <button class="tab" data-tab="about">About</button>
     </nav>
@@ -55,6 +56,34 @@
         <h3>Recommendations</h3>
         <div id="recs" class="recs"></div>
       </div>
+    </section>
+
+    <!-- SIZING CALCULATOR -->
+    <section id="panel-sizing" class="panel">
+      <div class="controls">
+        <label class="field">
+          <span>Discipline</span>
+          <select id="sizeDiscipline"></select>
+        </label>
+      </div>
+
+      <h3>Your measurements</h3>
+      <p class="muted size-hint">Enter at least your inseam. The more you add, the more the calculator can recommend.</p>
+      <div id="sizeBody" class="sizing-grid"></div>
+
+      <details class="current-block">
+        <summary>My current bike setup (optional)</summary>
+        <p class="muted size-hint">Add what you can measure and we'll show how far off each is and which way to move.</p>
+        <div id="sizeCurrent" class="sizing-grid"></div>
+      </details>
+
+      <div class="controls">
+        <button id="calcBtn" class="btn btn-primary">Calculate</button>
+        <button id="sizeSaveBtn" class="btn" disabled>Save to history</button>
+      </div>
+
+      <p id="sizeStatus" class="status"></p>
+      <div id="sizeResults" class="results hidden"></div>
     </section>
 
     <!-- HISTORY -->

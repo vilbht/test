@@ -102,8 +102,26 @@ tr.st-low, tr.st-high { background: rgba(245,166,35,0.06); }
 
 .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
 .badge-ok { background: rgba(25,195,125,0.16); color: var(--accent); }
-.badge-low, .badge-high { background: rgba(245,166,35,0.16); color: var(--warn); }
+.badge-low, .badge-high, .badge-adjust { background: rgba(245,166,35,0.16); color: var(--warn); }
 .badge-unknown { background: var(--panel-2); color: var(--muted); }
+.badge-kind { background: rgba(43,140,255,0.16); color: var(--accent-2); }
+
+/* Sizing calculator */
+.sizing-grid {
+  display: grid; gap: 12px; margin: 8px 0 16px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+.sizing-grid .field span { display: flex; align-items: baseline; gap: 4px; }
+.sizing-grid input, .sizing-grid select {
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; font-size: 14px; width: 100%;
+}
+.field .unit { color: var(--muted); font-size: 11px; }
+.field .req { color: var(--bad); }
+.size-hint { font-size: 13px; margin: 4px 0; }
+.current-block { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 6px 14px; margin-bottom: 16px; }
+.current-block summary { cursor: pointer; padding: 8px 0; font-weight: 600; }
+#panel-sizing h3 { margin: 8px 0 2px; }
 
 .recs { display: grid; gap: 10px; margin-top: 8px; }
 .rec { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--muted); border-radius: 10px; padding: 12px 14px; }

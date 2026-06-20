@@ -10,6 +10,9 @@ import {
 import {
   loadSessions, saveSession, deleteSession, clearSessions, newId,
 } from './storage.js';
+import {
+  SIZING_FIELDS, CURRENT_FIELDS, computeSizing,
+} from './sizing.js';
 
 // ---- DOM ----
 const $ = (sel) => document.querySelector(sel);
@@ -33,6 +36,14 @@ const els = {
   clearHistory: $('#clearHistory'),
   tabs: document.querySelectorAll('.tab'),
   panels: document.querySelectorAll('.panel'),
+  // Sizing calculator
+  sizeDiscipline: $('#sizeDiscipline'),
+  sizeBody: $('#sizeBody'),
+  sizeCurrent: $('#sizeCurrent'),
+  calcBtn: $('#calcBtn'),
+  sizeSaveBtn: $('#sizeSaveBtn'),
+  sizeStatus: $('#sizeStatus'),
+  sizeResults: $('#sizeResults'),
 };
 
 const RECORD_SECONDS = 15;
@@ -43,6 +54,7 @@ let recordStart = 0;
 let frames = [];            // collected per-frame angle objects during recording
 let lastSummary = null;     // latest computed summary (for saving)
 let lastSide = 'right';
+let lastSizing = null;      // latest sizing result (for saving)
 
 // ---- Tabs ----
 els.tabs.forEach((tab) => {
@@ -55,13 +67,114 @@ els.tabs.forEach((tab) => {
   });
 });
 
-// ---- Discipline selector ----
+// ---- Discipline selectors ----
 Object.entries(DISCIPLINES).forEach(([key, d]) => {
-  const opt = document.createElement('option');
-  opt.value = key;
-  opt.textContent = d.label;
-  els.discipline.appendChild(opt);
+  for (const sel of [els.discipline, els.sizeDiscipline]) {
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = d.label;
+    sel.appendChild(opt);
+  }
 });
+
+// ---- Sizing calculator ----
+buildSizingInputs();
+els.calcBtn.addEventListener('click', onCalculate);
+els.sizeSaveBtn.addEventListener('click', onSizeSave);
+
+function buildSizingInputs() {
+  els.sizeBody.innerHTML = Object.entries(SIZING_FIELDS).map(([key, f]) => fieldHtml('size', key, f)).join('');
+  els.sizeCurrent.innerHTML = Object.entries(CURRENT_FIELDS).map(([key, f]) => fieldHtml('cur', key, f)).join('');
+}
+
+function fieldHtml(prefix, key, f) {
+  const id = `${prefix}-${key}`;
+  const labelUnit = f.unit ? ` <span class="unit">(${f.unit})</span>` : '';
+  const req = f.required ? ' <span class="req">*</span>' : '';
+  let control;
+  if (f.select) {
+    control = `<select id="${id}" data-key="${key}">${f.options.map((o) =>
+      `<option value="${o.value}">${o.label}</option>`).join('')}</select>`;
+  } else {
+    control = `<input id="${id}" data-key="${key}" type="number" inputmode="decimal" step="0.1" min="0" placeholder="–" />`;
+  }
+  return `<label class="field" title="${f.help || ''}">
+    <span>${f.label}${labelUnit}${req}</span>
+    ${control}
+  </label>`;
+}
+
+function readInputs() {
+  const out = {};
+  Object.keys(SIZING_FIELDS).forEach((k) => { out[k] = document.querySelector(`#size-${k}`).value; });
+  Object.keys(CURRENT_FIELDS).forEach((k) => { out[k] = document.querySelector(`#cur-${k}`).value; });
+  return out;
+}
+
+function onCalculate() {
+  const inputs = readInputs();
+  if (!inputs.inseam || parseFloat(inputs.inseam) <= 0) {
+    setSizeStatus('Enter your inseam to calculate a fit.', true);
+    els.sizeResults.classList.add('hidden');
+    els.sizeSaveBtn.disabled = true;
+    return;
+  }
+  const discipline = els.sizeDiscipline.value;
+  const results = computeSizing(inputs, discipline);
+  lastSizing = { inputs, discipline, results };
+  renderSizing(lastSizing, els.sizeResults);
+  els.sizeResults.classList.remove('hidden');
+  els.sizeSaveBtn.disabled = false;
+  setSizeStatus('Recommended starting fit below. Adjust in small steps.');
+}
+
+function renderSizing(sizing, host, embedded = false) {
+  const rows = sizing.results.map((r) => {
+    const rec = r.recommended != null ? `${r.recommended}${r.unit}` : (r.range ? '' : '–');
+    const range = r.range ? `${r.range[0]}–${r.range[1]}${r.unit}` : (r.recommended != null ? '' : '');
+    const target = r.range ? range : rec;
+    const yours = r.current != null ? `${r.current}${r.unit}` : '–';
+    let status = '';
+    if (r.status === 'ok') status = '<span class="badge badge-ok">In range</span>';
+    else if (r.status === 'adjust') status = `<span class="badge badge-adjust">${r.direction} ${r.delta}${r.unit}</span>`;
+    return `<tr>
+      <td><div class="metric-name">${r.label}</div><div class="metric-help">${r.note || ''}</div></td>
+      <td class="num">${target || '–'}</td>
+      <td class="num">${yours}</td>
+      <td>${status}</td>
+    </tr>`;
+  }).join('');
+
+  host.innerHTML = `
+    ${embedded ? '' : '<div class="results-head"><h2>Recommended fit</h2></div>'}
+    <table class="results-table">
+      <thead><tr><th>Setting</th><th>Recommended</th><th>Your value</th><th>Status</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="disclaimer">⚠️ These are conventional starting points (e.g. LeMond saddle height, inseam-based crank and frame). They are not a professional bike fit — set them up, then fine-tune in small steps and stop if anything hurts.</p>`;
+}
+
+function onSizeSave() {
+  if (!lastSizing) return;
+  const session = {
+    id: newId(),
+    date: new Date().toISOString(),
+    type: 'sizing',
+    discipline: lastSizing.discipline,
+    disciplineLabel: DISCIPLINES[lastSizing.discipline].label,
+    inputs: lastSizing.inputs,
+    results: lastSizing.results,
+  };
+  saveSession(session);
+  setSizeStatus('Saved to History.');
+  els.sizeSaveBtn.textContent = 'Saved ✓';
+  setTimeout(() => (els.sizeSaveBtn.textContent = 'Save to history'), 1500);
+}
+
+function setSizeStatus(msg, isError = false) {
+  els.sizeStatus.textContent = msg;
+  els.sizeStatus.classList.toggle('error', isError);
+}
 
 // ---- Camera + pose ----
 els.startCam.addEventListener('click', startCamera);
@@ -297,11 +410,14 @@ function renderHistory() {
   }
   els.historyList.innerHTML = sessions.map((s) => {
     const d = new Date(s.date);
+    const kind = s.type === 'sizing'
+      ? '<span class="badge badge-kind">Sizing</span>'
+      : `<span class="muted">${s.side || ''} side</span>`;
     return `<details class="hist-item">
       <summary>
         <span class="hist-date">${d.toLocaleString()}</span>
         <span class="badge badge-ok">${s.disciplineLabel}</span>
-        <span class="muted">${s.side} side</span>
+        ${kind}
         <button class="link-btn del" data-id="${s.id}">Delete</button>
       </summary>
       <div class="hist-detail" id="hd-${s.id}"></div>
@@ -311,8 +427,12 @@ function renderHistory() {
   // Lazy-render details + wire deletes.
   sessions.forEach((s) => {
     const host = $('#hd-' + s.id);
-    host.innerHTML = `<table class="results-table"><thead><tr><th>Metric</th><th>Value</th><th>Target</th><th>Status</th></tr></thead><tbody class="results-body"></tbody></table><div class="recs"></div>`;
-    showResults(s.summary, s.discipline, host);
+    if (s.type === 'sizing') {
+      renderSizing(s, host, true);
+    } else {
+      host.innerHTML = `<table class="results-table"><thead><tr><th>Metric</th><th>Value</th><th>Target</th><th>Status</th></tr></thead><tbody class="results-body"></tbody></table><div class="recs"></div>`;
+      showResults(s.summary, s.discipline, host);
+    }
   });
   els.historyList.querySelectorAll('.del').forEach((b) => {
     b.addEventListener('click', (e) => {
