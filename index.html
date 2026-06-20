@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>VeloFit — Bike Fit Analyzer</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="logo">◎</span>
+      <div>
+        <h1>VeloFit</h1>
+        <p>Markerless bike fit from your webcam</p>
+      </div>
+    </div>
+    <nav class="tabs">
+      <button class="tab active" data-tab="capture">Capture</button>
+      <button class="tab" data-tab="history">History</button>
+      <button class="tab" data-tab="about">About</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- CAPTURE -->
+    <section id="panel-capture" class="panel active">
+      <div class="controls">
+        <label class="field">
+          <span>Discipline</span>
+          <select id="discipline"></select>
+        </label>
+        <button id="startCam" class="btn btn-primary">Start camera</button>
+        <button id="record" class="btn" disabled>Record</button>
+      </div>
+
+      <div class="stage">
+        <video id="video" playsinline muted></video>
+        <canvas id="overlay"></canvas>
+        <div id="recordBar" class="record-bar hidden"><div id="recordFill"></div></div>
+      </div>
+
+      <div id="liveAngles" class="live-angles"></div>
+      <p id="status" class="status"></p>
+
+      <div id="results" class="results hidden">
+        <div class="results-head">
+          <h2>Results</h2>
+          <button id="saveBtn" class="btn btn-primary">Save to history</button>
+        </div>
+        <table class="results-table">
+          <thead><tr><th>Metric</th><th>Value</th><th>Target</th><th>Status</th></tr></thead>
+          <tbody id="resultsBody"></tbody>
+        </table>
+        <h3>Recommendations</h3>
+        <div id="recs" class="recs"></div>
+      </div>
+    </section>
+
+    <!-- HISTORY -->
+    <section id="panel-history" class="panel">
+      <div class="results-head">
+        <h2>Saved sessions</h2>
+        <button id="clearHistory" class="btn btn-ghost">Clear all</button>
+      </div>
+      <div id="historyList" class="history-list"></div>
+    </section>
+
+    <!-- ABOUT -->
+    <section id="panel-about" class="panel about">
+      <h2>How to get a good fit reading</h2>
+      <ol>
+        <li>Mount your bike on a trainer and place the camera <b>directly to the side</b>, about 2–3 m away, at roughly hip height.</li>
+        <li>Make sure your whole body — ear to foot — stays in frame.</li>
+        <li>Pick your discipline, tap <b>Start camera</b>, then <b>Record</b> and pedal at a steady cadence for 15 seconds.</li>
+        <li>Review the measured joint angles and the fit recommendations, then save the session to compare changes over time.</li>
+      </ol>
+      <h3>What we measure</h3>
+      <p>Knee flexion at the bottom of the stroke (saddle height), hip and torso angles (front-end height &amp; reach), and elbow/shoulder angles (reach), compared against target ranges for your discipline.</p>
+      <p class="disclaimer">⚠️ VeloFit gives general guidance based on camera angle estimates. It is not a substitute for a professional bike fit or medical advice. Make adjustments in small steps and stop if anything causes pain. All data stays in your browser.</p>
+    </section>
+  </main>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
