@@ -1,0 +1,69 @@
+name: hid-gamepad
+
+on:
+  push:
+    paths:
+      - "hid-gamepad/**"
+      - ".github/workflows/hid-gamepad.yml"
+  pull_request:
+    paths:
+      - "hid-gamepad/**"
+      - ".github/workflows/hid-gamepad.yml"
+
+jobs:
+  app:
+    name: Core tests + Android build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+          cache-dependency-path: |
+            hid-gamepad/app/gradle/libs.versions.toml
+            hid-gamepad/app/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Core unit tests (pure JVM)
+        working-directory: hid-gamepad/app
+        run: ./gradlew --no-daemon :core:test
+
+      - name: Assemble debug APK
+        working-directory: hid-gamepad/app
+        run: ./gradlew --no-daemon :app:assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: hid-gamepad-debug-apk
+          path: hid-gamepad/app/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: hid-gamepad/app/core/build/reports/tests/
+
+  case:
+    name: OpenSCAD render check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OpenSCAD
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q openscad xvfb
+
+      - name: Render all parts
+        working-directory: hid-gamepad/case
+        run: xvfb-run -a ./render.sh
+
+      - name: Upload STLs
+        uses: actions/upload-artifact@v4
+        with:
+          name: case-stls
+          path: hid-gamepad/case/build/
