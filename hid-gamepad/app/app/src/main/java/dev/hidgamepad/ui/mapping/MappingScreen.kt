@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import dev.hidgamepad.core.layout.ControlSpec
 import dev.hidgamepad.core.layout.Vec2
 import dev.hidgamepad.ui.LocalAppContainer
+import dev.hidgamepad.ui.common.ScreenHeader
 import kotlinx.coroutines.launch
 
 /**
@@ -61,21 +62,14 @@ fun MappingScreen(profileName: String, onBack: () -> Unit) {
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-            }
-            Text("Edit: $profileName", style = MaterialTheme.typography.titleLarge)
+        ScreenHeader("Edit: $profileName", onBack = onBack) {
             if (dirty) {
-                Button(
-                    onClick = {
-                        scope.launch {
-                            container.profileRepository.save(profile)
-                            dirty = false
-                        }
-                    },
-                    modifier = Modifier.padding(start = 12.dp),
-                ) { Text("Save") }
+                Button(onClick = {
+                    scope.launch {
+                        container.profileRepository.save(profile)
+                        dirty = false
+                    }
+                }) { Text("Save") }
             }
         }
 

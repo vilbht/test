@@ -39,12 +39,37 @@ module frame() {
             frame_body();
             stick_rings();
             button_bosses();
+            logo_rim_ring();
         }
         phone_cavity();
         faceplate_openings();
         trigger_rim_gaps();
         usb_opening();
         camera_opening();
+        logo_recess();
+    }
+}
+
+// Centre of the left grip wing — the natural thumb-rest spot for a badge.
+function logo_center() = [(wall_t + grip_w) / 2, frame_h / 2];
+
+module logo_recess() {
+    if (logo_medallion) {
+        translate([logo_center()[0], logo_center()[1], face_z + face_t - logo_depth])
+            cylinder(h = logo_depth + logo_rim + 1, d = logo_d);
+    }
+}
+
+module logo_rim_ring() {
+    // Slight raised rim so the inlay sits protected below the touch surface.
+    // Rim bore is 0.4 wider than the recess so surfaces never coincide
+    // (coincident faces make the mesh non-manifold).
+    if (logo_medallion) {
+        translate([logo_center()[0], logo_center()[1], face_z + face_t])
+            difference() {
+                cylinder(h = logo_rim, d = logo_d + 2 * 1.6);
+                translate([0, 0, -0.1]) cylinder(h = logo_rim + 0.2, d = logo_d + 0.4);
+            }
     }
 }
 

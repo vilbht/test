@@ -41,6 +41,7 @@ import dev.hidgamepad.core.layout.DefaultLayouts
 import dev.hidgamepad.core.layout.ScreenInfo
 import dev.hidgamepad.core.layout.Vec2
 import dev.hidgamepad.ui.LocalAppContainer
+import dev.hidgamepad.ui.common.ScreenHeader
 import kotlinx.coroutines.launch
 
 /**
@@ -139,12 +140,7 @@ fun CalibrationScreen(onBack: () -> Unit) {
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                }
-                Text("Case calibration", style = MaterialTheme.typography.titleLarge)
-            }
+            ScreenHeader("Case calibration", onBack = onBack)
 
             @Suppress("UNUSED_EXPRESSION") stepVersion
             val step = session.step

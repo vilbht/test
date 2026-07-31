@@ -60,6 +60,35 @@ glass (app toggle mode "follow contact"), OFF lifts it clear. If your
 phone's touch firmware drops long-held contacts, switch the app to
 "flip per tap" mode — then the slider only needs to tap.
 
+## Adding a logo (e.g. the Firefox mark used in the app)
+
+The frame ships with a **logo medallion**: a Ø16 × 0.8 mm recess with a
+raised rim, centred on the left grip wing (`logo_medallion` / `logo_d` in
+`config.scad`; keep it at least 6 mm smaller than `grip_w`). Ways to fill
+it, easiest first:
+
+1. **Epoxy-domed sticker** — buy or print the logo as a 14–16 mm sticker,
+   drop it in the recess, top with a drop of clear epoxy. The rim keeps the
+   dome below thumb level. Most durable for a gradient-heavy mark like the
+   Firefox logo, which doesn't reduce well to few colors.
+2. **Multi-color printed coin** — model a Ø15.7 mm × 0.8 mm disc, emboss a
+   simplified logo silhouette 0.4 mm proud, print with filament swaps
+   (orange base, white/purple swap layers), glue into the recess. For the
+   silhouette, import the official *symbolic* one-color Firefox SVG into
+   OpenSCAD (`linear_extrude() import("firefox-symbolic.svg");`) — the flat
+   glyph works in one color where the full logo can't.
+3. **Layer-height color print (HueForge-style)** — a 4–6 layer lithophane
+   of the full-color logo; looks surprisingly good backlit by the screen
+   glow around the viewing window.
+4. **Vinyl decal** — cut on a craft plotter, apply into the recess; zero
+   post-processing.
+5. **Debossed glyph, no inlay** — set `logo_depth = 0.4` and glue nothing:
+   a subtle tone-on-tone stamp. Combine with a light filament swap at the
+   recess layer for a two-tone effect.
+
+Trademark note: the Firefox logo belongs to Mozilla — fine on a personal
+build, but don't sell cases wearing it.
+
 ## Files
 
 | File | Purpose |

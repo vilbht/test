@@ -2,15 +2,13 @@ package dev.hidgamepad.ui.gamepad
 
 import android.view.MotionEvent
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -29,6 +27,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -105,22 +104,34 @@ fun GamepadScreen(onOpenMenu: () -> Unit) {
                 true
             },
     ) {
+        // Faint brand watermark behind the controls (decorative only).
+        Image(
+            painter = painterResource(dev.hidgamepad.R.drawable.firefox_logo),
+            contentDescription = null,
+            alpha = 0.06f,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(180.dp),
+        )
+
         ControlsCanvas(layout.controls, state)
 
         // Invisible semantic nodes so every control is reachable and
         // actionable with TalkBack (screen-reader support is unconditional).
         ControlSemantics(layout.controls, state, canvasSize)
 
+        // The brand mark doubles as the menu button.
         IconButton(
             onClick = onOpenMenu,
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(4.dp),
         ) {
-            Icon(
-                Icons.Filled.Menu,
+            Image(
+                painter = painterResource(dev.hidgamepad.R.drawable.firefox_logo),
                 contentDescription = "Open connection and settings menu",
-                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                alpha = 0.85f,
+                modifier = Modifier.size(28.dp),
             )
         }
 

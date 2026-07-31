@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import dev.hidgamepad.core.layout.DefaultLayouts
 import dev.hidgamepad.core.profile.CaseExport
 import dev.hidgamepad.ui.LocalAppContainer
+import dev.hidgamepad.ui.common.ScreenHeader
 import kotlinx.coroutines.launch
 
 @Composable
@@ -46,12 +47,7 @@ fun ProfilesScreen(onBack: () -> Unit, onEdit: (String) -> Unit) {
     var message by remember { mutableStateOf<String?>(null) }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-            }
-            Text("Profiles", style = MaterialTheme.typography.titleLarge)
-        }
+        ScreenHeader("Profiles", onBack = onBack)
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
             OutlinedButton(onClick = {

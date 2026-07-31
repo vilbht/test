@@ -31,6 +31,7 @@ import dev.hidgamepad.core.input.OneHandedMode
 import dev.hidgamepad.core.input.ToggleMode
 import dev.hidgamepad.data.AppSettings
 import dev.hidgamepad.ui.LocalAppContainer
+import dev.hidgamepad.ui.common.ScreenHeader
 import kotlinx.coroutines.launch
 
 /**
@@ -54,12 +55,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             .padding(16.dp)
             .verticalScroll(rememberScrollState()),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-            }
-            Text("Settings", style = MaterialTheme.typography.titleLarge)
-        }
+        ScreenHeader("Settings", onBack = onBack)
 
         Section("Motor accessibility")
         ToggleRow("Sticky buttons", "Tap latches a button; tap again releases it", settings.engine.stickyButtons) { v ->

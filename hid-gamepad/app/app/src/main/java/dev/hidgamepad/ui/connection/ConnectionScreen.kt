@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import dev.hidgamepad.bluetooth.ConnectionState
 import dev.hidgamepad.bluetooth.HidDeviceService
 import dev.hidgamepad.ui.LocalAppContainer
+import dev.hidgamepad.ui.common.ScreenHeader
 import kotlinx.coroutines.launch
 
 @SuppressLint("MissingPermission") // gated by PermissionGate
@@ -55,12 +56,7 @@ fun ConnectionScreen(
 
     PermissionGate {
         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to gamepad")
-                }
-                Text("Connection", style = MaterialTheme.typography.titleLarge)
-            }
+            ScreenHeader("Connection", onBack = onBack)
 
             Text(
                 text = when (val c = connection) {

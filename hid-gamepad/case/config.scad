@@ -85,5 +85,14 @@ stick_ring_t = 1.6;    // locating ring wall thickness
 // fingers can reach the app's menu). [x, y, w, h] in screen coords.
 window = [40, 18, 70, 40];
 
+// ---- Logo medallion -----------------------------------------------------
+// Shallow circular recess on the left grip wing sized for a logo inlay
+// (printed multi-color coin, epoxy-domed sticker, or vinyl decal — see
+// "Adding a logo" in README.md). Set logo_medallion = false to remove.
+logo_medallion = true;
+logo_d = 16;         // recess diameter (must fit the grip wing: < grip_w - 6)
+logo_depth = 0.8;    // recess depth (2 sticker layers or a 4-layer coin)
+logo_rim = 1.2;      // raised rim around the recess
+
 // ---- Print/quality ----------------------------------------------------------
 $fn = 48;
