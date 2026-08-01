@@ -1,27 +1,25 @@
 // main.js — the only file that touches the DOM: loop, input, camera, HUD.
 //
-// One button. Tap to jump, hold in the air to backflip, and that is the whole
-// control scheme — everything else is the mountain doing the work. The
-// simulation lives in core/ and is unit-tested there, so this file stays thin
-// glue and "does it feel right" remains a question about core/ride.mjs.
+// Everything simulated lives in core/ and is unit-tested there. This file is
+// deliberately thin glue so that "does it feel right" is a question about
+// core/physics.mjs, not about rendering.
 
-import { FIXED_DT, createClock, advance } from '../core/physics.mjs';
-import { createRider, stepRider, speedFraction, surfaceBasis, RIDE } from '../core/ride.mjs';
-import { surfaceY, angleAt } from '../core/terrain.mjs';
-import { generateLevel, progressAt, chapterAt } from '../core/level.mjs';
-import { paletteAt } from '../core/daylight.mjs';
-import { createRun, stepRules, stepTrackers } from '../core/rules.mjs';
-import { createChain, stepChain } from '../core/verlet.mjs';
+import {
+  FIXED_DT, TUNING, createBody, stepCharacter, createClock, advance,
+} from '../core/physics.mjs';
+import { createChain, stepChain, tipVelocity } from '../core/verlet.mjs';
 import { createSpring, stepSpring, squashStretch } from '../core/springs.mjs';
-import { windAt } from '../core/bodies.mjs';
-import { ProceduralFox, foxTailForces, foxTailSpread } from './art/fox.js';
 import {
-  drawSky, drawStars, drawSun, drawClouds, drawMountains,
-  drawSlope, drawTrees, drawSnowfall, drawBirds, drawShootingStar,
-} from './art/scenery.js';
+  windAt, stepSeesaw, seesawRects, seesawSurfaceY,
+  stepCrates, pushCrates, crateRects,
+} from '../core/bodies.mjs';
+import { generateLevel, zoneAt } from '../core/level.mjs';
+import { createRun, stepRules, stepTrackers, RULES } from '../core/rules.mjs';
+import { ProceduralFox, GreyboxFox, foxTailForces, foxTailSpread } from './art/fox.js';
+import { drawSky, drawSun, drawParallax, drawGround } from './art/scenery.js';
 import {
-  drawCoin, drawCampfire, drawRock, drawTracker, drawRail,
-  drawSpray, drawFlipBurst, drawTrickLabel,
+  drawSparkle, drawBeacon, drawTracker, drawCrumb, drawCrate, drawSeesaw,
+  drawVine, drawWindStreaks, drawLeaf, drawPulseRing,
 } from './art/entities.js';
 import { createAudio } from './audio.js';
 
@@ -31,286 +29,401 @@ const VH = 540;
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const el = {
-  chapter: document.getElementById('chapter'),
-  coins: document.getElementById('coins'),
-  flips: document.getElementById('flips'),
-  distance: document.getElementById('distance'),
-  speed: document.getElementById('speed'),
-  mute: document.getElementById('mute'),
+  zone: document.getElementById('zone'),
+  sparkles: document.getElementById('sparkles'),
+  beacons: document.getElementById('beacons'),
+  focus: document.getElementById('focus'),
   fact: document.getElementById('fact'),
   factTitle: document.getElementById('fact-title'),
   factBody: document.getElementById('fact-body'),
   debug: document.getElementById('debug'),
   start: document.getElementById('start'),
   begin: document.getElementById('begin'),
-  finish: document.getElementById('finish'),
-  summary: document.getElementById('summary'),
-  again: document.getElementById('again'),
+  mute: document.getElementById('mute'),
 };
 
 // ---------------------------------------------------------------- input
 
-const KEYS = ['Space', 'ArrowUp', 'KeyW', 'Enter'];
-let held = false;
-let pressed = false;
+const held = new Set();
+const pressed = new Set();
 
-function press() { if (!held) pressed = true; held = true; }
-function release() { held = false; }
+const BINDINGS = {
+  left: ['ArrowLeft', 'KeyA'],
+  right: ['ArrowRight', 'KeyD'],
+  jump: ['Space', 'ArrowUp', 'KeyW'],
+  drop: ['ArrowDown', 'KeyS'],
+  pulse: ['ShiftLeft', 'ShiftRight', 'KeyJ'],
+};
+
+const isDown = (action) => BINDINGS[action].some((c) => held.has(c));
+const wasPressed = (action) => BINDINGS[action].some((c) => pressed.has(c));
 
 addEventListener('keydown', (e) => {
   if (e.code === 'Backquote') { el.debug.hidden = !el.debug.hidden; return; }
   if (e.code === 'KeyM') { el.mute.hidden = !audio.toggleMute(); return; }
-  if (!KEYS.includes(e.code)) return;
-  e.preventDefault();
-  if (!e.repeat) press();
+  if (Object.values(BINDINGS).flat().includes(e.code)) e.preventDefault();
+  if (!held.has(e.code)) pressed.add(e.code);
+  held.add(e.code);
 });
-addEventListener('keyup', (e) => { if (KEYS.includes(e.code)) release(); });
-addEventListener('blur', release);
-canvas.addEventListener('pointerdown', (e) => { e.preventDefault(); press(); });
-addEventListener('pointerup', release);
-addEventListener('pointercancel', release);
+addEventListener('keyup', (e) => held.delete(e.code));
+addEventListener('blur', () => { held.clear(); pressed.clear(); });
 
 // ---------------------------------------------------------------- state
 
-const params = new URLSearchParams(location.search);
-const seed = Number(params.get('seed')) || 7;
-
+const seed = Number(new URLSearchParams(location.search).get('seed')) || 7;
 const level = generateLevel(seed);
-const { terrain } = level;
-const rider = createRider(terrain);
+const body = createBody({ x: level.start.x, y: level.start.y });
 const run = createRun();
 const clock = createClock();
-const audio = createAudio();
 
-const tail = createChain({ x: rider.x, y: rider.y - 18, count: 11, segment: 3.0, taper: 0.05 });
-const zoomSpring = createSpring(1);
+// Rest length is short on purpose: the tapered links sum to ~28px at spread 1,
+// reaching ~65px unfurled at a sprint. Longer than that and a 34px-tall fox
+// trails a whip instead of a brush.
+const tail = createChain({ x: body.x, y: body.y - 20, count: 11, segment: 3.0, taper: 0.05 });
+const lean = createSpring(0);
+const cam = { x: 0, y: 0, shake: 0 };
+let camFocusY = level.start.y;
 
-const cam = { x: 0, y: 0, shake: 0, zoom: 1 };
-let camFocusY = rider.y;
-
-const spray = [];
-let flipBurst = 0;
-let flipBurstAt = { x: 0, y: 0 };
-let trickLabel = null;
-let trickTimer = 0;
+// ?art=grey falls back to flat boxes, for judging movement without art in the way
+const fox = new URLSearchParams(location.search).get('art') === 'grey'
+  ? GreyboxFox
+  : ProceduralFox;
 
 let elapsed = 0;
-let ridePhase = 0;
+let gait = 0;
 let landImpulse = 0;
 let running = false;
+let grabbed = null;      // { vine, index } while swinging
 let fps = 60;
-let palette = paletteAt(0);
+
+// where the last shield pulse fired, so its ring stays put in the world
+// instead of following the fox as it runs on
+const pulseAt = { x: body.x, y: body.y };
+
+const audio = createAudio();
+let audioZone = null;
 
 // ---------------------------------------------------------------- simulation
 
+function collisionRects() {
+  const rects = level.rects.slice();
+  for (const s of level.seesaws) rects.push(...seesawRects(s));
+  rects.push(...crateRects(level.crates));
+  return rects;
+}
+
 function step(dt) {
   elapsed += dt;
-  ridePhase += (Math.abs(rider.speed) / 90) * dt;
 
-  const input = { jumpPressed: pressed, jumpHeld: held };
-  const events = stepRider(rider, terrain, level.rails, input, dt);
-  pressed = false;
+  const move = (isDown('right') ? 1 : 0) - (isDown('left') ? 1 : 0);
+  const jumpPressed = wasPressed('jump');
 
-  const ruleEvents = stepRules(run, level, rider, events, dt);
-  stepTrackers(level, rider, dt, elapsed);
-  stepTail(dt);
-  stepSpray(dt);
+  if (grabbed) {
+    swing(dt, move, jumpPressed);
+  } else {
+    const input = {
+      move: move * run.speedScale,
+      jumpHeld: isDown('jump'),
+      jumpPressed,
+      dropHeld: isDown('drop'),
+    };
 
-  const progress = progressAt(level, rider.x);
-  palette = paletteAt(progress);
-  audio.setProgress(progress);
+    const rects = collisionRects();
+    const events = stepCharacter(body, input, rects, dt);
 
-  if (events.landed) {
-    landImpulse = Math.min(0.34, Math.abs(rider.vy) / 900 + 0.1);
-    cam.shake = Math.min(6, landImpulse * 14);
-    audio.land(landImpulse);
+    // wind nudges the fox as well as the tail, so a gust is felt not just seen
+    const w = windAt(level.winds, body.x, body.y - body.h / 2, elapsed);
+    body.vx += w.x * dt * 0.42;
+    if (!body.onGround) body.vy += w.y * dt * 0.42;
+
+    pushCrates(body, level.crates, move, dt);
+
+    if (events.landed) {
+      landImpulse = Math.min(0.34, Math.abs(body.vy) / TUNING.maxFall + 0.14);
+      cam.shake = Math.min(5, landImpulse * 13);
+      audio.land(landImpulse);
+    }
+    tryGrab();
   }
-  if (events.launched) audio.launch();
-  if (events.grindStart) audio.grind();
-  if (events.tumbled) { cam.shake = 7; audio.tumble(); }
-  if (events.rescued) cam.shake = 5;
-
-  if (events.flips > 0) {
-    flipBurst = 1;
-    flipBurstAt = { x: rider.x, y: rider.y - 18 };
-    trickLabel = events.flips > 1 ? `${events.flips}× BACKFLIP` : 'BACKFLIP';
-    trickTimer = 1;
-    audio.trick(events.flips);
-  }
-  if (ruleEvents.coins > 0) audio.coin();
-  if (ruleEvents.litBeacon) audio.campfire(run.lit - 1);
-  if (ruleEvents.rock) { cam.shake = 5; audio.tumble(); }
 
   landImpulse *= 0.86;
   cam.shake *= 0.87;
-  flipBurst = Math.max(0, flipBurst - dt * 1.6);
-  trickTimer = Math.max(0, trickTimer - dt * 0.7);
 
-  if (run.finished && el.finish.hidden) showSummary();
-}
+  stepCrates(level.crates, level.rects, dt);
 
-function stepTail(dt) {
-  tail.spreadTarget = foxTailSpread(rider.speed, !rider.onGround, RIDE.maxSpeed * 0.55);
-  const w = windAt(level.winds, rider.x, rider.y - 20, elapsed);
-  const a = rider.angle;
+  for (const s of level.seesaws) {
+    const onPlank = !grabbed && body.onGround &&
+      Math.abs(body.x - s.x) < s.len / 2 + 8 &&
+      Math.abs(body.y - seesawSurfaceY(s, body.x)) < 10;
+    stepSeesaw(s, onPlank ? [{ x: body.x, weight: 1 }] : [], dt);
+  }
 
-  // anchored at the hips, which rotate with the fox during a flip
-  stepChain(tail, dt, {
-    anchorX: rider.x - Math.cos(a) * 8,
-    anchorY: rider.y - 18 - Math.sin(a) * 8,
-    ...foxTailForces({ facing: 1, vx: rider.vx, vy: rider.vy, wind: w }),
-  });
+  for (const v of level.vines) {
+    const w = windAt(level.winds, v.x, v.y, elapsed);
+    stepChain(v.chain, dt, {
+      anchorX: v.x, anchorY: v.y, gravity: 1100, damping: 0.992,
+      iterations: 7, wind: w.x || w.y ? w : null,
+    });
+  }
+
+  stepTail(dt);
+  stepLeaves(dt);
+  stepTrackers(level, body, dt, elapsed);
+
+  const ruleEvents = stepRules(run, level, body, { pulsePressed: wasPressed('pulse') }, dt);
+  if (ruleEvents.pulsed) {
+    pulseAt.x = body.x;
+    pulseAt.y = body.y - body.h / 2;
+    audio.pulse();
+  }
+  if (ruleEvents.collected) audio.sparkle();
+  if (ruleEvents.litBeacon) audio.beacon(run.lit - 1);
+
+  const zoneKey = zoneAt(body.x).key;
+  if (zoneKey !== audioZone) {
+    audioZone = zoneKey;
+    audio.setZone(zoneKey);
+  }
+
+  pressed.clear();
 }
 
 /**
- * Snow thrown off the paws.
- *
- * Emitted backwards along the surface tangent, not straight up: this is snow
- * being cut by something crossing a slope, and a vertical puff would read as
- * dust on a flat floor.
+ * Tail spread is the speed-reactive part of the brief: compact at idle, unfurled
+ * to full drama at a sprint or mid-leap. The solver eases it; we only set a target.
  */
-function stepSpray(dt) {
-  if (rider.onGround && !rider.grinding) {
-    const rate = speedFraction(rider);
-    // Several grains per step, not one. A single particle per frame at speed
-    // strings out into a dotted line trailing the fox; snow being cut has to
-    // come off as a plume, which needs both a burst and a spread of angles.
-    const grains = rate > 0.16 ? 1 + Math.floor(rate * 3) : 0;
-    for (let i = 0; i < grains; i++) {
-      const b = surfaceBasis(terrain, rider.x);
-      const back = 0.25 + Math.random() * 0.5;
-      const lift = 0.4 + Math.random() * 1.3;
-      spray.push({
-        x: rider.x - b.tx * 7 + (Math.random() - 0.5) * 7,
-        y: rider.y - b.ty * 7 - Math.random() * 4,
-        vx: -b.tx * rider.speed * back + (Math.random() - 0.5) * 70,
-        vy: -b.ty * rider.speed * back - rider.speed * lift * 0.28 - 20,
-        r: 0.9 + Math.random() * 2.2,
-        life: 0.26 + Math.random() * 0.42,
-        max: 0.68,
-      });
+function stepTail(dt) {
+  const facing = facingOf();
+  tail.spreadTarget = foxTailSpread(body.vx, !body.onGround, TUNING.runSpeed);
+
+  const w = windAt(level.winds, body.x, body.y - body.h / 2, elapsed);
+  stepChain(tail, dt, {
+    anchorX: body.x - facing * 7,
+    anchorY: body.y - 21,
+    ...foxTailForces({ facing, vx: body.vx, vy: body.vy, wind: w }),
+  });
+}
+
+let lastFacing = 1;
+function facingOf() {
+  if (body.vx > 12) lastFacing = 1;
+  else if (body.vx < -12) lastFacing = -1;
+  return lastFacing;
+}
+
+// ---------------------------------------------------------------- vines
+
+function tryGrab() {
+  if (body.onGround || body.vy < -60) return;
+  for (const v of level.vines) {
+    const p = v.chain.points;
+    for (let i = 4; i < p.length; i++) {
+      if (Math.hypot(p[i].x - body.x, p[i].y - (body.y - body.h / 2)) > 24) continue;
+      grabbed = { vine: v, index: i };
+      v.held = true;
+      return;
     }
   }
+}
 
-  for (let i = spray.length - 1; i >= 0; i--) {
-    const p = spray[i];
-    p.life -= dt;
-    if (p.life <= 0) { spray.splice(i, 1); continue; }
-    p.vy += 520 * dt;
-    p.x += p.vx * dt;
-    p.y += p.vy * dt;
+function swing(dt, move, jumpPressed) {
+  const { vine, index } = grabbed;
+  const p = vine.chain.points[index];
+
+  // Pumping adds tangential velocity at the grab point rather than torque —
+  // position-based solvers stay stable under that, and it maps to how a swing
+  // actually works: you drive it, you do not rotate it.
+  if (move) p.px -= move * 34 * dt;
+
+  const w = windAt(level.winds, vine.x, vine.y, elapsed);
+  stepChain(vine.chain, dt, {
+    anchorX: vine.x, anchorY: vine.y, gravity: 1100, damping: 0.994,
+    iterations: 7, wind: w.x || w.y ? w : null,
+  });
+
+  body.px = body.x;
+  body.py = body.y;
+  body.x = p.x;
+  body.y = p.y + body.h / 2;
+  body.vx = (p.x - p.px) / dt;
+  body.vy = (p.y - p.py) / dt;
+  body.onGround = false;
+
+  if (jumpPressed) {
+    const t = tipVelocity(vine.chain, dt);
+    body.vx = Math.max(-460, Math.min(460, t.vx * 0.6 + body.vx * 0.5));
+    body.vy = Math.max(-520, TUNING.jumpVelocity * 0.72 + Math.min(0, body.vy));
+    vine.held = false;
+    grabbed = null;
   }
-  if (spray.length > 400) spray.splice(0, spray.length - 400);
 }
 
 // ---------------------------------------------------------------- render
 
 function render(alpha) {
-  const ix = rider.px + (rider.x - rider.px) * alpha;
-  const iy = rider.py + (rider.y - rider.py) * alpha;
-  const fast = speedFraction(rider);
+  const ix = body.px + (body.x - body.px) * alpha;
+  const iy = body.py + (body.y - body.py) * alpha;
 
-  // Pull the view back as speed rises, so the faster the fox goes the more of
-  // the mountain it can read ahead of it. This is the one camera move that makes
-  // high speed feel controllable rather than blind.
-  stepSpring(zoomSpring, 1 - fast * 0.16, FIXED_DT, 2.2);
-  cam.zoom = zoomSpring.value;
+  // camera: lead the fox in the direction of travel, clamp to the world
+  const lead = Math.max(-90, Math.min(140, body.vx * 0.34));
+  const targetX = ix - VW * 0.36 + lead;
 
-  const viewW = VW / cam.zoom;
-  const viewH = VH / cam.zoom;
-
-  const lead = 60 + fast * 180;
-  cam.x += ((ix - viewW * 0.34 + lead) - cam.x) * 0.10;
-  cam.x = Math.max(0, Math.min(level.length - viewW, cam.x));
-
-  // Vertical follow anchors to the ground the fox last stood on, so airs and
-  // rollers never bob the horizon; a long fall still drags the anchor with it.
-  const slack = 170;
-  if (rider.onGround) camFocusY = iy;
+  // Vertical follow tracks the ground the fox is standing on, not the fox
+  // itself, so jumping never bobs the horizon. Mid-air the anchor only moves
+  // once the fox is further than `slack` from it — enough to keep a fall or a
+  // vine swing in frame without reacting to a hop.
+  //
+  // A plain dead zone was tried first and is wrong: it has no restoring force,
+  // so the camera that pans down to follow one fall stays down forever after,
+  // leaving the fox pinned near the top of the screen for the rest of the run.
+  // Anchoring to a value that is itself re-established on every landing is what
+  // makes the camera recover.
+  const slack = 150;
+  if (body.onGround) camFocusY = iy;
   else if (iy > camFocusY + slack) camFocusY = iy - slack;
   else if (iy < camFocusY - slack) camFocusY = iy + slack;
-  cam.y += ((camFocusY - viewH * 0.62) - cam.y) * 0.07;
 
-  drawSky(ctx, palette, VW, VH);
-  drawStars(ctx, palette, cam, VW, VH, elapsed);
-  drawShootingStar(ctx, palette, cam, VW, VH, elapsed);
-  drawSun(ctx, palette, cam, VW, VH);
-  drawClouds(ctx, palette, cam, VW, VH, elapsed);
-  drawMountains(ctx, palette, cam, VW, VH);
-  drawBirds(ctx, palette, cam, VW, VH, elapsed);
+  const targetY = Math.max(-300, Math.min(400, camFocusY - VH * 0.74));
+
+  cam.x += (targetX - cam.x) * 0.09;
+  cam.y += (targetY - cam.y) * 0.08;
+  cam.x = Math.max(0, Math.min(level.width - VW, cam.x));
 
   const shakeX = (Math.random() - 0.5) * cam.shake;
   const shakeY = (Math.random() - 0.5) * cam.shake;
 
+  const zone = zoneAt(ix);
+
+  // sky, sun and parallax are screen space, before the camera transform
+  drawSky(ctx, zone.key, VW, VH, cam.y);
+  drawSun(ctx, zone.key, VW, VH, cam);
+  drawParallax(ctx, zone.key, cam, VW, VH, elapsed);
+
   ctx.save();
-  ctx.scale(cam.zoom, cam.zoom);
   ctx.translate(-Math.round(cam.x + shakeX), -Math.round(cam.y + shakeY));
 
-  drawSlope(ctx, terrain, palette, cam, viewW, viewH);
-  drawTrees(ctx, terrain, palette, cam, viewW);
-  drawWorld(viewW);
-  drawSpray(ctx, spray, palette);
+  drawWorld(zone.key, ix);
+  drawEntities();
 
-  drawFox(ix, iy);
+  stepSpring(lean, Math.max(-0.5, Math.min(0.5, body.vx / TUNING.runSpeed * 0.34)), FIXED_DT, 7);
+  gait += Math.abs(body.vx) * FIXED_DT * 0.09;
 
-  drawFlipBurst(ctx, flipBurstAt.x, flipBurstAt.y, flipBurst);
-  if (trickLabel) drawTrickLabel(ctx, trickLabel, ix, iy - 54, trickTimer);
+  fox.draw(ctx, ix, iy, {
+    w: body.w, h: body.h,
+    facing: facingOf(),
+    phase: gait,
+    airborne: !body.onGround,
+    onGround: body.onGround,
+    blocking: run.pulse / 0.38,
+    tail,
+    squash: squashStretch(body.vy, landImpulse, TUNING.maxFall),
+    lean: lean.value,
+    speed: Math.abs(body.vx),
+  });
 
   ctx.restore();
-
-  drawSnowfall(ctx, palette, cam, VW, VH, elapsed, 0.25 + palette.star * 0.35);
-  drawHud();
+  drawHud(zone);
 }
 
-function drawWorld(viewW) {
+function drawWorld(zoneKey, ix) {
   const l = cam.x - 80;
-  const r = cam.x + viewW + 80;
-  const seen = (x) => x > l && x < r;
+  const r = cam.x + VW + 80;
+  const inView = (x, pad = 80) => x > l - pad && x < r + pad;
 
-  for (const rail of level.rails) {
-    if (rail.x1 < l || rail.x0 > r) continue;
-    drawRail(ctx, terrain, rail, palette, elapsed, rider.grinding === rail);
+  for (const w of level.winds) {
+    if (!inView(w.x + w.w / 2, w.w)) continue;
+    drawWindStreaks(ctx, w, elapsed);
   }
-  for (const rock of level.rocks) if (seen(rock.x)) drawRock(ctx, terrain, rock, palette);
-  for (const b of level.beacons) if (seen(b.x)) drawCampfire(ctx, b, palette, elapsed);
-  for (const c of level.coins) if (!c.got && seen(c.x)) drawCoin(ctx, c, elapsed);
+
+  drawGround(ctx, level.rects, cam, VW, VH);
+
+  for (const v of level.vines) if (inView(v.x, 60)) drawVine(ctx, v, elapsed);
+  for (const s of level.seesaws) if (inView(s.x, s.len)) drawSeesaw(ctx, s);
+  for (const c of level.crates) if (inView(c.x)) drawCrate(ctx, c);
+
+  for (const leaf of leaves) drawLeaf(ctx, leaf, zoneKey);
+  void ix;
+}
+
+function drawEntities() {
+  const l = cam.x - 60;
+  const r = cam.x + VW + 60;
+  const inView = (x) => x > l && x < r;
+
+  for (const s of level.sparkles) {
+    if (s.got || !inView(s.x)) continue;
+    drawSparkle(ctx, s.x, s.y, 8, elapsed, s.phase);
+  }
+  for (const b of level.beacons) if (inView(b.x)) drawBeacon(ctx, b, elapsed);
   for (const k of level.trackers) {
-    if (k.dispersed || !seen(k.x)) continue;
-    drawTracker(ctx, k, palette, elapsed);
+    if (k.dispersed || !inView(k.x)) continue;
+    drawTracker(ctx, k, elapsed);
+  }
+  for (const c of level.crumbs) {
+    if (c.dispersed || !inView(c.x)) continue;
+    drawCrumb(ctx, c);
+  }
+  if (run.pulse > 0) {
+    drawPulseRing(ctx, pulseAt.x, pulseAt.y, run.pulse / 0.38, RULES.pulseRadius);
   }
 }
 
-function drawFox(ix, iy) {
-  ProceduralFox.draw(ctx, ix, iy, {
-    w: 22,
-    h: 34,
-    facing: 1,
-    angle: rider.angle,
-    phase: ridePhase,
-    airborne: !rider.onGround,
-    onGround: rider.onGround,
-    tail,
-    squash: squashStretch(rider.vy, landImpulse, 900),
-    speed: Math.abs(rider.speed),
-    tumble: Math.min(1, rider.tumble / RIDE.tumbleTime),
-    groundY: surfaceY(terrain, rider.x),
-  });
+// ---------------------------------------------------------------- leaves
+
+/**
+ * Leaves advected by the wind fields. They are the only reason a wind zone is
+ * legible before you walk into it, so they are seeded across the whole field
+ * rather than emitted from an edge.
+ */
+const leaves = [];
+
+function seedLeaves() {
+  for (const w of level.winds) {
+    for (let i = 0; i < 16; i++) {
+      leaves.push({
+        x: w.x + Math.random() * w.w,
+        y: w.y + Math.random() * w.h,
+        field: w,
+        r: 2.4 + Math.random() * 2.6,
+        spin: Math.random() * Math.PI,
+        vspin: (Math.random() - 0.5) * 3,
+        alpha: 0.35 + Math.random() * 0.4,
+        gold: Math.random() < 0.35,
+        drift: (Math.random() - 0.5) * 26,
+      });
+    }
+  }
 }
+
+function stepLeaves(dt) {
+  for (const leaf of leaves) {
+    const f = leaf.field;
+    const w = windAt([f], leaf.x, leaf.y, elapsed);
+    leaf.x += (w.x * 0.55 + 12) * dt;
+    leaf.y += (w.y * 0.5 + leaf.drift + Math.sin(elapsed * 1.7 + leaf.spin) * 14) * dt;
+    leaf.spin += leaf.vspin * dt;
+
+    // wrap inside the field, so a zone never empties out
+    if (leaf.x > f.x + f.w) leaf.x = f.x;
+    if (leaf.x < f.x) leaf.x = f.x + f.w;
+    if (leaf.y > f.y + f.h) leaf.y = f.y;
+    if (leaf.y < f.y) leaf.y = f.y + f.h;
+  }
+}
+
 
 // ---------------------------------------------------------------- HUD
 
-let lastFact = null;
+let lastFactShown = null;
 
-function drawHud() {
-  const progress = progressAt(level, rider.x);
-  el.chapter.textContent = `${chapterAt(progress).name} · ${palette.name}`;
-  el.coins.textContent = `✦ ${run.coins}`;
-  el.flips.textContent = `⟳ ${run.flips}`;
-  el.distance.textContent = `${Math.round(rider.x / 10)} m`;
-  el.speed.style.transform = `scaleX(${speedFraction(rider).toFixed(3)})`;
+function drawHud(zone) {
+  el.zone.textContent = zone.name;
+  el.sparkles.textContent = `✦ ${run.sparkles}`;
+  el.beacons.textContent = `◈ ${run.lit} / ${level.beacons.length}`;
+  el.focus.style.transform = `scaleX(${run.focus})`;
 
-  if (run.fact !== lastFact) {
-    lastFact = run.fact;
+  if (run.fact !== lastFactShown) {
+    lastFactShown = run.fact;
     if (run.fact) {
       el.factTitle.textContent = run.fact.title;
       el.factBody.textContent = run.fact.body;
@@ -322,38 +435,18 @@ function drawHud() {
 
   if (!el.debug.hidden) {
     el.debug.textContent = [
-      `fps       ${fps.toFixed(0)}`,
-      `x y       ${rider.x.toFixed(0)} ${rider.y.toFixed(0)}`,
-      `speed     ${rider.speed.toFixed(0)} (${(speedFraction(rider) * 100).toFixed(0)}%)`,
-      `slope     ${(angleAt(terrain, rider.x) * 57.3).toFixed(1)}°`,
-      `ground    ${rider.onGround}`,
-      `air       ${rider.airTime.toFixed(2)}s`,
-      `rotation  ${(rider.rotation / (Math.PI * 2)).toFixed(2)} turns`,
-      `flips     ${run.flips}`,
-      `grinding  ${rider.grinding ? 'yes' : 'no'}`,
-      `cling     ${run.clung}`,
-      `zoom      ${cam.zoom.toFixed(2)}`,
+      `fps      ${fps.toFixed(0)}`,
+      `x y      ${body.x.toFixed(0)} ${body.y.toFixed(0)}`,
+      `vx vy    ${body.vx.toFixed(0)} ${body.vy.toFixed(0)}`,
+      `ground   ${body.onGround}`,
+      `coyote   ${body.coyote.toFixed(3)}`,
+      `buffer   ${body.buffer.toFixed(3)}`,
+      `spread   ${tail.spread.toFixed(2)}`,
+      `cling    ${run.clung}  (x${run.speedScale.toFixed(2)})`,
+      `swinging ${grabbed ? 'yes' : 'no'}`,
+      `zone     ${zone.key}`,
     ].join('\n');
   }
-}
-
-function showSummary() {
-  el.summary.innerHTML = '';
-  const rows = [
-    ['Distance', `${Math.round(level.length / 10)} m`],
-    ['Sparks', run.coins],
-    ['Backflips', run.flips],
-    ['Campfires lit', `${run.lit} / ${level.beacons.length}`],
-    ['Grinds', run.grinds],
-  ];
-  for (const [label, value] of rows) {
-    const dt = document.createElement('dt');
-    dt.textContent = label;
-    const dd = document.createElement('dd');
-    dd.textContent = String(value);
-    el.summary.append(dt, dd);
-  }
-  el.finish.hidden = false;
 }
 
 // ---------------------------------------------------------------- loop
@@ -363,6 +456,7 @@ function resize() {
   canvas.width = VW * dpr;
   canvas.height = VH * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = true;
 }
 
 let last = 0;
@@ -378,25 +472,21 @@ function frame(now) {
   render(clock.alpha);
 }
 
-el.begin.addEventListener('click', (e) => {
-  e.stopPropagation();
+el.begin.addEventListener('click', () => {
   el.start.hidden = true;
   running = true;
-  last = 0;
   audio.start();
+  last = 0;
+  canvas.focus();
 });
 
-el.again.addEventListener('click', () => location.reload());
-
+seedLeaves();
 resize();
 addEventListener('resize', resize);
 requestAnimationFrame(frame);
+
+// a first paint behind the start overlay, so the world is visible immediately
 render(0);
 
-// exposed so the smoke test can drive the game without synthetic input
-globalThis.__quiet = {
-  rider, run, level, terrain, tail,
-  start: () => el.begin.click(),
-  press: () => { pressed = true; held = true; },
-  release: () => { held = false; },
-};
+// exposed for the smoke test to drive the game without synthetic key events
+globalThis.__quiet = { body, run, level, tail, start: () => el.begin.click() };

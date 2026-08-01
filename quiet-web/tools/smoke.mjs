@@ -64,92 +64,57 @@ check('canvas renders varied pixels', painted > 12, `${painted} distinct samples
 await page.click('#begin');
 await page.waitForTimeout(300);
 
-// ---- gravity carries the fox down the mountain with no input at all
-const before = await page.evaluate(() => window.__quiet.rider.x);
-await page.waitForTimeout(1200);
-const after = await page.evaluate(() => window.__quiet.rider.x);
-check('the slope moves the fox on its own', after > before + 100,
-  `${before.toFixed(0)} → ${after.toFixed(0)}`);
-check('and it is carrying speed',
-  await page.evaluate(() => window.__quiet.rider.speed > 140));
+// ---- input reaches the character controller
+const before = await page.evaluate(() => window.__quiet.body.x);
+await page.keyboard.down('ArrowRight');
+await page.waitForTimeout(900);
+const after = await page.evaluate(() => window.__quiet.body.x);
+check('running right moves the fox', after > before + 60, `${before.toFixed(0)} → ${after.toFixed(0)}`);
 
-// ---- one button: a tap leaves the ground
+// ---- jumping leaves the ground
+await page.keyboard.down('Space');
 const airborne = await page.evaluate(async () => {
-  const q = window.__quiet;
-  for (let attempt = 0; attempt < 6; attempt++) {
-    q.press();
-    for (let i = 0; i < 30; i++) {
-      await new Promise((r) => requestAnimationFrame(r));
-      if (!q.rider.onGround) { q.release(); return true; }
-    }
-    q.release();
+  for (let i = 0; i < 40; i++) {
+    if (!window.__quiet.body.onGround) return true;
+    await new Promise((r) => requestAnimationFrame(r));
   }
   return false;
 });
-check('a tap leaves the ground', airborne);
-
-// ---- holding the button in the air rotates the fox
-const spun = await page.evaluate(async () => {
-  const q = window.__quiet;
-  for (let attempt = 0; attempt < 8; attempt++) {
-    q.press();
-    let peak = 0;
-    for (let i = 0; i < 90; i++) {
-      await new Promise((r) => requestAnimationFrame(r));
-      peak = Math.max(peak, Math.abs(q.rider.rotation));
-      if (q.rider.onGround && i > 10) break;
-    }
-    q.release();
-    if (peak > 1.5) return peak;
-  }
-  return 0;
-});
-check('holding the button spins a backflip', spun > 1.5, `${spun.toFixed(2)} rad`);
-
-await page.waitForTimeout(400);
+await page.keyboard.up('Space');
+check('jump leaves the ground', airborne);
+await page.keyboard.up('ArrowRight');
+await page.waitForTimeout(500);
 
 // ---- nothing has gone non-finite
 const finite = await page.evaluate(() => {
   const q = window.__quiet;
-  const nums = [q.rider.x, q.rider.y, q.rider.speed, q.rider.angle, q.rider.rotation];
+  const nums = [q.body.x, q.body.y, q.body.vx, q.body.vy];
   const tail = q.tail.points.flatMap((p) => [p.x, p.y]);
   return [...nums, ...tail].every(Number.isFinite);
 });
-check('no NaN in the rider or tail', finite);
+check('no NaN in the body or tail', finite);
 
-// ---- a campfire lights as the fox passes, with no need to stop
+// ---- a beacon lights when the fox stands by it
 const lit = await page.evaluate(async () => {
   const q = window.__quiet;
   const b = q.level.beacons.find((x) => !x.lit);
-  q.rider.x = b.x;
-  q.rider.y = b.y;
-  for (let i = 0; i < 200; i++) {
+  q.body.x = b.x;
+  q.body.y = b.y;
+  q.body.vx = 0;
+  q.body.vy = 0;
+  for (let i = 0; i < 400; i++) {
     if (b.lit) return true;
     await new Promise((r) => requestAnimationFrame(r));
   }
   return false;
 });
-check('riding past a campfire lights it', lit);
-check('lighting a campfire shows its fact',
+check('standing by a beacon lights it', lit);
+check('lighting a beacon shows its fact',
   await page.evaluate(() => !document.getElementById('fact').hidden));
 
-// ---- the day/night cycle actually advances
-const cycled = await page.evaluate(async () => {
-  const q = window.__quiet;
-  const read = () => document.getElementById('chapter').textContent;
-  q.rider.x = 200;
-  await new Promise((r) => requestAnimationFrame(r));
-  const dawn = read();
-  q.rider.x = q.level.length - 400;
-  for (let i = 0; i < 10; i++) await new Promise((r) => requestAnimationFrame(r));
-  return { dawn, night: read() };
-});
-check('the light changes over the descent', cycled.dawn !== cycled.night,
-  `${cycled.dawn} → ${cycled.night}`);
-
 // ---- frame budget, measured while the game is actually running
+await page.keyboard.down('ArrowRight');
 const fps = await page.evaluate(async () => {
-  window.__quiet.rider.x = 1200;
   const t0 = performance.now();
   let frames = 0;
   while (performance.now() - t0 < 2000) {
@@ -158,24 +123,21 @@ const fps = await page.evaluate(async () => {
   }
   return (frames * 1000) / (performance.now() - t0);
 });
+await page.keyboard.up('ArrowRight');
 check('holds frame rate', fps >= 50, `${fps.toFixed(1)} fps`);
 
-// ---- falling into a chasm lifts the fox out; a no-fail game keeps your score
+// ---- fall recovery: a no-fail game must lift the fox back out
 const rescued = await page.evaluate(async () => {
   const q = window.__quiet;
-  const chasm = q.terrain.chasms[1] || q.terrain.chasms[0];
-  const kept = q.run.coins;
-  q.rider.x = chasm.x0 + 8;
-  q.rider.onGround = false;
-  q.rider.vx = 40;
-  q.rider.vy = 300;
-  for (let i = 0; i < 240; i++) {
+  const kept = q.run.sparkles;
+  q.body.y = 3000;
+  for (let i = 0; i < 200; i++) {
     await new Promise((r) => requestAnimationFrame(r));
-    if (q.rider.onGround && q.rider.x > chasm.x1) return q.run.coins >= kept;
+    if (q.body.y < 1000) return q.run.sparkles === kept;
   }
   return false;
 });
-check('falling into a chasm lifts the fox out, losing nothing', rescued);
+check('falling lifts the fox back, losing nothing', rescued);
 
 check('still no errors after play', errors.length === 0, errors.join(' | '));
 

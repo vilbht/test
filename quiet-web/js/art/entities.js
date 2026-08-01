@@ -1,246 +1,316 @@
-// entities.js — everything on the mountain that is not scenery and not the fox.
+// entities.js — everything in the world that is not scenery and not the fox.
 //
-// Same grammar as the scenery: flat fills, no outlines, value doing the work.
-// The one deliberate exception is light. Coins, campfires and the flip burst are
-// the only things allowed to glow, so anything glowing is something the player
-// can gain from — which is a rule the eye learns in about four seconds and never
-// has to be told.
+// Shared visual grammar with the mascot: filled shapes, no outlines, gradients
+// doing the shading. Purple is reserved for things that are on your side
+// (sparkles, beacon light, the shield) and muted plum-greys for the trackers,
+// so allegiance is readable before anything is explained.
 
-import { angleAt, surfaceY } from '../../core/terrain.mjs';
+import { paletteFor } from './scenery.js';
 
-const VIOLET = '#9059FF';
+const VIOLET = '#8B3DFF';
+const VIOLET_LIT = '#9059FF';
 const GOLD = '#FFC93C';
-const EMBER = '#F5793B';
 
-// ---------------------------------------------------------------- coins
+// ---------------------------------------------------------------- sparkles
 
-/** The four-pointed sparkle from the mascot art — concave sides, not a diamond. */
-export function drawCoin(ctx, c, t) {
-  const bob = Math.sin(t * 2.4 + c.phase) * 3;
-  const r = 8 * (0.88 + Math.sin(t * 3 + c.phase) * 0.12);
+/** The four-pointed star from the references — concave sides, not a diamond. */
+export function drawSparkle(ctx, x, y, r, t, phase) {
+  const pulse = 0.85 + Math.sin(t * 2.4 + phase) * 0.15;
+  const rr = r * pulse;
 
   ctx.save();
-  ctx.translate(c.x, c.y + bob);
+  ctx.translate(x, y + Math.sin(t * 2.2 + phase) * 3);
 
-  const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 2.8);
-  glow.addColorStop(0, 'rgba(144,89,255,0.42)');
-  glow.addColorStop(1, 'rgba(144,89,255,0)');
+  const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, rr * 2.6);
+  glow.addColorStop(0, 'rgba(144, 89, 255, 0.42)');
+  glow.addColorStop(1, 'rgba(144, 89, 255, 0)');
   ctx.fillStyle = glow;
-  ctx.fillRect(-r * 2.8, -r * 2.8, r * 5.6, r * 5.6);
+  ctx.fillRect(-rr * 2.6, -rr * 2.6, rr * 5.2, rr * 5.2);
 
-  ctx.fillStyle = VIOLET;
+  ctx.fillStyle = VIOLET_LIT;
   ctx.beginPath();
   for (let i = 0; i < 4; i++) {
     const a = (i * Math.PI) / 2;
+    const nx = Math.cos(a) * rr;
+    const ny = Math.sin(a) * rr;
+    const cx = Math.cos(a + Math.PI / 4) * rr * 0.22;
+    const cy = Math.sin(a + Math.PI / 4) * rr * 0.22;
+    if (i === 0) ctx.moveTo(nx, ny);
     const na = a + Math.PI / 2;
-    if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r);
-    ctx.quadraticCurveTo(
-      Math.cos(a + Math.PI / 4) * r * 0.22,
-      Math.sin(a + Math.PI / 4) * r * 0.22,
-      Math.cos(na) * r,
-      Math.sin(na) * r,
-    );
+    ctx.quadraticCurveTo(cx, cy, Math.cos(na) * rr, Math.sin(na) * rr);
   }
   ctx.closePath();
   ctx.fill();
   ctx.restore();
 }
 
-// ---------------------------------------------------------------- campfires
+// ---------------------------------------------------------------- beacons
 
 /**
- * A campfire carrying one privacy fact. Unlit it is a dark cairn of logs; lit it
- * throws real light onto the snow, which is the only lasting mark the player
- * leaves on the mountain.
+ * A privacy beacon: a slim post with a lantern head. Unlit it is inert stone;
+ * charging fills a ring; lit it burns gold and throws light on the ground, which
+ * is the only permanent change the player makes to the world.
  */
-export function drawCampfire(ctx, b, pal, t) {
-  const y = b.y;
+export function drawBeacon(ctx, b, t) {
+  const headY = b.y - 54;
+  const glow = b.lit ? 1 : b.charge;
 
-  if (b.lit) {
-    const pool = ctx.createRadialGradient(b.x, y, 0, b.x, y, 130);
-    pool.addColorStop(0, 'rgba(255,180,90,0.30)');
-    pool.addColorStop(1, 'rgba(255,180,90,0)');
+  if (glow > 0.02) {
+    const pool = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, 90 * glow);
+    pool.addColorStop(0, `rgba(255, 201, 60, ${0.20 * glow})`);
+    pool.addColorStop(1, 'rgba(255, 201, 60, 0)');
     ctx.fillStyle = pool;
-    ctx.fillRect(b.x - 130, y - 130, 260, 260);
+    ctx.fillRect(b.x - 90, b.y - 90, 180, 180);
   }
 
-  // logs, leaning together
-  ctx.save();
-  ctx.strokeStyle = b.lit ? '#4A2E22' : pal.near;
-  ctx.lineWidth = 4.5;
-  ctx.lineCap = 'round';
-  for (const lean of [-1, 1, 0.35]) {
-    ctx.beginPath();
-    ctx.moveTo(b.x - lean * 11, y);
-    ctx.lineTo(b.x + lean * 6, y - 15);
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  if (!b.lit) return;
-
-  // flame: two overlapping teardrops, flickering out of phase
-  ctx.save();
-  ctx.translate(b.x, y - 12);
-  for (const [scale, colour, speed] of [[1, EMBER, 5.1], [0.58, GOLD, 7.3]]) {
-    const flick = 1 + Math.sin(t * speed) * 0.14;
-    ctx.fillStyle = colour;
-    ctx.beginPath();
-    ctx.moveTo(0, -20 * scale * flick);
-    ctx.quadraticCurveTo(9 * scale, -7 * scale, 6 * scale, 2 * scale);
-    ctx.quadraticCurveTo(0, 7 * scale, -6 * scale, 2 * scale);
-    ctx.quadraticCurveTo(-9 * scale, -7 * scale, 0, -20 * scale * flick);
-    ctx.closePath();
-    ctx.fill();
-  }
-  ctx.restore();
-}
-
-// ---------------------------------------------------------------- obstacles
-
-/** A rock in the snow: a dark lump, half buried, with a lit rim on top. */
-export function drawRock(ctx, terrain, rock, pal) {
-  const a = angleAt(terrain, rock.x);
-  ctx.save();
-  ctx.translate(rock.x, rock.y);
-  ctx.rotate(a);
-
-  ctx.fillStyle = pal.near;
+  const post = ctx.createLinearGradient(b.x - 5, 0, b.x + 5, 0);
+  post.addColorStop(0, '#2A1A44');
+  post.addColorStop(0.5, '#3D2A5C');
+  post.addColorStop(1, '#241539');
+  ctx.fillStyle = post;
   ctx.beginPath();
-  ctx.moveTo(-rock.r, 2);
-  ctx.quadraticCurveTo(-rock.r * 0.8, -rock.r * 1.1, 0, -rock.r);
-  ctx.quadraticCurveTo(rock.r * 0.9, -rock.r * 0.95, rock.r, 2);
+  ctx.roundRect(b.x - 4.5, headY + 6, 9, 48, 3);
+  ctx.fill();
+
+  ctx.fillStyle = '#2A1A44';
+  ctx.beginPath();
+  ctx.ellipse(b.x, b.y, 13, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // lantern head
+  const head = ctx.createLinearGradient(0, headY - 11, 0, headY + 9);
+  head.addColorStop(0, b.lit ? '#FFE08A' : '#4A3468');
+  head.addColorStop(1, b.lit ? '#F5793B' : '#2E1F4A');
+  ctx.fillStyle = head;
+  ctx.beginPath();
+  ctx.moveTo(b.x, headY - 12);
+  ctx.lineTo(b.x + 9, headY - 1);
+  ctx.lineTo(b.x, headY + 10);
+  ctx.lineTo(b.x - 9, headY - 1);
   ctx.closePath();
   ctx.fill();
 
-  ctx.fillStyle = pal.shade;
-  ctx.beginPath();
-  ctx.ellipse(-rock.r * 0.2, -rock.r * 0.72, rock.r * 0.42, rock.r * 0.2, -0.3, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
+  if (b.lit) {
+    const flicker = 0.78 + Math.sin(t * 3.1) * 0.12 + Math.sin(t * 7.7) * 0.06;
+    ctx.save();
+    ctx.globalAlpha = flicker;
+    ctx.fillStyle = GOLD;
+    ctx.beginPath();
+    ctx.arc(b.x, headY - 1, 4.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  } else if (b.charge > 0) {
+    ctx.strokeStyle = VIOLET_LIT;
+    ctx.lineWidth = 2.6;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(b.x, headY - 1, 18, -Math.PI / 2, -Math.PI / 2 + b.charge * Math.PI * 2);
+    ctx.stroke();
+  }
 }
 
-/** Drifting trackers. Muted while patrolling, flushed and jittery once latched. */
-export function drawTracker(ctx, k, pal, t) {
-  const jitter = k.clinging ? Math.sin(t * 20 + k.phase) * 1.3 : 0;
+// ---------------------------------------------------------------- trackers
+
+/**
+ * A tracker: a watching eye. Muted and slow while patrolling, flushed pink and
+ * jittery once it has latched on, so the thing slowing you down is obvious
+ * without a HUD warning.
+ */
+export function drawTracker(ctx, k, t) {
+  const jitter = k.clinging ? Math.sin(t * 22 + k.phase) * 1.2 : 0;
   const x = k.x + jitter;
-  const r = 8.5;
+  const y = k.y;
+  const r = 9.5;
 
   ctx.save();
   for (let i = 0; i < 5; i++) {
-    const a = (i / 5) * Math.PI * 2 + t * (k.clinging ? 1.7 : 0.4) + k.phase;
-    ctx.strokeStyle = k.clinging ? 'rgba(255,92,138,0.5)' : 'rgba(140,150,190,0.35)';
-    ctx.lineWidth = 1.5;
+    const a = (i / 5) * Math.PI * 2 + t * (k.clinging ? 1.6 : 0.5) + k.phase;
+    ctx.strokeStyle = k.clinging ? 'rgba(255,92,138,0.55)' : 'rgba(120,96,160,0.45)';
+    ctx.lineWidth = 1.6;
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(x + Math.cos(a) * r * 0.8, k.y + Math.sin(a) * r * 0.8);
-    ctx.lineTo(x + Math.cos(a) * (r + 5), k.y + Math.sin(a) * (r + 5));
+    ctx.moveTo(x + Math.cos(a) * r * 0.8, y + Math.sin(a) * r * 0.8);
+    ctx.lineTo(x + Math.cos(a) * (r + 5), y + Math.sin(a) * (r + 5));
     ctx.stroke();
   }
 
-  const body = ctx.createRadialGradient(x - 2, k.y - 3, 1, x, k.y, r);
-  body.addColorStop(0, k.clinging ? '#FF7FA5' : pal.shade);
-  body.addColorStop(1, k.clinging ? '#C8265C' : pal.near);
+  const body = ctx.createRadialGradient(x - 2, y - 3, 1, x, y, r);
+  body.addColorStop(0, k.clinging ? '#FF7FA5' : '#5C4880');
+  body.addColorStop(1, k.clinging ? '#C8265C' : '#332450');
   ctx.fillStyle = body;
   ctx.beginPath();
-  ctx.arc(x, k.y, r, 0, Math.PI * 2);
+  ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.fillStyle = 'rgba(20,12,40,0.85)';
+  // pupil, tracking the fox's side of the screen
+  ctx.fillStyle = '#170B2E';
   ctx.beginPath();
-  ctx.ellipse(x, k.y, 4, 2.2, 0, 0, Math.PI * 2);
+  ctx.ellipse(x + (k.clinging ? 0 : 1.2), y, 4.4, 2.4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.65)';
+  ctx.beginPath();
+  ctx.arc(x - 2.6, y - 3.4, 1.5, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }
 
-// ---------------------------------------------------------------- rails
-
-/** A bunting line strung between two poles — the thing you grind. */
-export function drawRail(ctx, terrain, rail, pal, t, active) {
-  const dx = rail.x1 - rail.x0;
-  const dy = rail.y1 - rail.y0;
-
-  // poles, planted on the real surface
+/** Cookie crumbs: ground clutter, harmless but in the way. */
+export function drawCrumb(ctx, c) {
   ctx.save();
-  ctx.strokeStyle = pal.near;
+  ctx.translate(c.x, c.y - 5);
+  ctx.fillStyle = '#8A5A34';
+  ctx.beginPath();
+  ctx.arc(0, 0, 5.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#5E3A20';
+  ctx.beginPath();
+  ctx.arc(-1.6, -1.2, 1.2, 0, Math.PI * 2);
+  ctx.arc(2, 0.8, 1, 0, Math.PI * 2);
+  ctx.arc(0.4, 2.2, 0.85, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------- set-pieces
+
+export function drawCrate(ctx, c) {
+  const g = ctx.createLinearGradient(c.x, c.y, c.x, c.y + c.h);
+  g.addColorStop(0, '#A8763F');
+  g.addColorStop(1, '#7A5230');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.roundRect(c.x, c.y, c.w, c.h, 3);
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(255, 220, 160, 0.30)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(c.x + 3, c.y + 3);
+  ctx.lineTo(c.x + c.w - 3, c.y + c.h - 3);
+  ctx.moveTo(c.x + c.w - 3, c.y + 3);
+  ctx.lineTo(c.x + 3, c.y + c.h - 3);
+  ctx.stroke();
+
+  // a violet band, echoing the paint pot in the reference art
+  ctx.fillStyle = 'rgba(139, 61, 255, 0.55)';
+  ctx.fillRect(c.x, c.y + c.h * 0.42, c.w, 4);
+}
+
+export function drawSeesaw(ctx, s) {
+  ctx.save();
+  ctx.translate(s.x, s.y);
+
+  ctx.fillStyle = '#2E1F4A';
+  ctx.beginPath();
+  ctx.moveTo(-9, 62);
+  ctx.lineTo(9, 62);
+  ctx.lineTo(4, 0);
+  ctx.lineTo(-4, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.rotate(s.angle);
+  const g = ctx.createLinearGradient(0, -6, 0, 6);
+  g.addColorStop(0, '#B8874A');
+  g.addColorStop(1, '#7E5730');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.roundRect(-s.len / 2, -5, s.len, 10, 4);
+  ctx.fill();
+
+  ctx.fillStyle = 'rgba(255, 220, 160, 0.22)';
+  ctx.fillRect(-s.len / 2 + 4, -4, s.len - 8, 1.5);
+  ctx.restore();
+}
+
+export function drawVine(ctx, v, t) {
+  const p = v.chain.points;
+  ctx.save();
+  ctx.strokeStyle = v.held ? '#8FCBA8' : '#4E7A6B';
   ctx.lineWidth = 3.4;
   ctx.lineCap = 'round';
-  for (const [px, py] of [[rail.x0, rail.y0], [rail.x1, rail.y1]]) {
-    ctx.beginPath();
-    ctx.moveTo(px, surfaceY(terrain, px) + 2);
-    ctx.lineTo(px, py);
-    ctx.stroke();
-  }
-
-  ctx.strokeStyle = active ? GOLD : pal.near;
-  ctx.lineWidth = active ? 3 : 2.2;
+  ctx.lineJoin = 'round';
   ctx.beginPath();
-  ctx.moveTo(rail.x0, rail.y0);
-  ctx.lineTo(rail.x1, rail.y1);
+  ctx.moveTo(p[0].x, p[0].y);
+  for (let i = 1; i < p.length; i++) ctx.lineTo(p[i].x, p[i].y);
   ctx.stroke();
 
-  // little flags, swaying
-  const n = Math.max(3, Math.floor(dx / 34));
-  for (let i = 1; i < n; i++) {
-    const f = i / n;
-    const fx = rail.x0 + dx * f;
-    const fy = rail.y0 + dy * f;
-    const sway = Math.sin(t * 2.2 + i * 0.9) * 2.2;
-    ctx.fillStyle = i % 2 ? VIOLET : GOLD;
-    ctx.globalAlpha = active ? 1 : 0.75;
+  // leaves, alternating sides down the length
+  ctx.fillStyle = v.held ? '#6FA88F' : '#3E6455';
+  for (let i = 2; i < p.length - 1; i += 2) {
+    const a = p[i];
+    const b = p[i + 1];
+    const ang = Math.atan2(b.y - a.y, b.x - a.x) + (i % 4 === 0 ? 1.1 : -1.1);
+    ctx.save();
+    ctx.translate(a.x, a.y);
+    ctx.rotate(ang);
     ctx.beginPath();
-    ctx.moveTo(fx - 4, fy);
-    ctx.lineTo(fx + 4, fy);
-    ctx.lineTo(fx + sway, fy + 11);
-    ctx.closePath();
+    ctx.ellipse(6, 0, 6.5, 3, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
   }
+
+  const tip = p[p.length - 1];
+  const pulse = 0.7 + Math.sin(t * 2 + v.x) * 0.3;
+  ctx.fillStyle = VIOLET;
+  ctx.globalAlpha = 0.5 + pulse * 0.5;
+  ctx.beginPath();
+  ctx.arc(tip.x, tip.y, 5.5, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 }
 
-// ---------------------------------------------------------------- effects
+// ---------------------------------------------------------------- ambience
 
 /**
- * Snow spray thrown off the paws.
- *
- * Emitted along the surface tangent rather than straight up, so it reads as snow
- * being cut by something moving across a slope instead of dust puffing off a
- * flat floor. Density follows speed, which makes going fast look fast.
+ * Wind made visible: short streaks riding the field, plus leaves that main.js
+ * advects through it. Drawing the field itself as a translucent box (the
+ * grey-box placeholder) read as a rectangle of fog sitting in mid-air.
  */
-export function drawSpray(ctx, particles, pal) {
+export function drawWindStreaks(ctx, field, t) {
   ctx.save();
-  ctx.fillStyle = pal.snowLit;
-  for (const p of particles) {
-    ctx.globalAlpha = Math.max(0, p.life / p.max) * 0.8;
+  ctx.strokeStyle = 'rgba(255, 232, 200, 0.16)';
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 14; i++) {
+    const seed = (i * 97) % 31 / 31;
+    const y = field.y + seed * field.h;
+    const speed = 60 + seed * 90;
+    const x = field.x + ((t * speed + seed * field.w) % field.w);
+    const len = 16 + seed * 26;
+    ctx.lineWidth = 1 + seed;
+    ctx.globalAlpha = 0.10 + 0.14 * Math.sin(t * 1.3 + i);
     ctx.beginPath();
-    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + len, y - len * 0.12);
+    ctx.stroke();
   }
   ctx.restore();
 }
 
-/** Expanding ring when a flip lands and the trackers scatter. */
-export function drawFlipBurst(ctx, x, y, t) {
-  if (t <= 0) return;
-  const r = 20 + (1 - t) * 120;
+export function drawLeaf(ctx, leaf, zoneKey) {
+  const p = paletteFor(zoneKey);
   ctx.save();
-  ctx.globalAlpha = t * 0.7;
-  ctx.strokeStyle = VIOLET;
-  ctx.lineWidth = 2 + t * 4;
+  ctx.translate(leaf.x, leaf.y);
+  ctx.rotate(leaf.spin);
+  ctx.globalAlpha = leaf.alpha;
+  ctx.fillStyle = leaf.gold ? p.accent : p.edgeLit;
   ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.stroke();
+  ctx.ellipse(0, 0, leaf.r, leaf.r * 0.44, 0, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 }
 
-/** Floating text for a landed trick — the only writing inside the world. */
-export function drawTrickLabel(ctx, label, x, y, t) {
-  if (t <= 0) return;
+/** Ring left behind by a shield pulse, drawn in world space where it fired. */
+export function drawPulseRing(ctx, x, y, t, radius) {
   ctx.save();
-  ctx.globalAlpha = Math.min(1, t * 1.6);
-  ctx.fillStyle = GOLD;
-  ctx.font = '600 15px ui-rounded, "Nunito", system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText(label, x, y - (1 - t) * 34);
+  ctx.globalAlpha = t * 0.7;
+  const g = ctx.createRadialGradient(x, y, radius * (1 - t) * 0.7, x, y, radius * (1 - t) + 20);
+  g.addColorStop(0, 'rgba(144, 89, 255, 0)');
+  g.addColorStop(0.8, 'rgba(144, 89, 255, 0.30)');
+  g.addColorStop(1, 'rgba(144, 89, 255, 0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(x, y, radius * (1 - t) + 20, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 }

@@ -12,12 +12,11 @@
 
 const SCALE = [0, 3, 5, 7, 10];      // minor pentatonic, in semitones
 
-/**
- * The root drifts down as the mountain does. Descending a whole tone every third
- * of the run means the score darkens with the daylight without anything having to
- * switch tracks — the same trick the palette uses.
- */
-const ROOTS = [174.61, 155.56, 146.83, 130.81];   // F3 → E♭3 → D3 → C3
+const ZONE_ROOT = {
+  meadow: 146.83,   // D3
+  canyon: 110.00,   // A2 — lower, heavier
+  grove: 174.61,    // F3
+};
 
 const semis = (root, n) => root * Math.pow(2, n / 12);
 
@@ -29,7 +28,7 @@ export function createAudio() {
   let voices = [];
   let timer = null;
   let nextNote = 0;
-  let root = ROOTS[0];
+  let root = ZONE_ROOT.meadow;
   let muted = false;
   let started = false;
 
@@ -67,33 +66,6 @@ export function createAudio() {
   }
 
   let bus = null;
-
-  /**
-   * A filtered noise burst — snow spray, wind, a thud. One helper covers all of
-   * them because the only differences are the band and how it sweeps.
-   */
-  function noise(dur, fromHz, toHz, gain) {
-    const len = Math.floor(ctx.sampleRate * dur);
-    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
-
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.setValueAtTime(fromHz, ctx.currentTime);
-    bp.frequency.exponentialRampToValueAtTime(Math.max(40, toHz), ctx.currentTime + dur * 0.9);
-    bp.Q.value = 1.2;
-
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(gain, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
-
-    src.connect(bp).connect(g).connect(bus);
-    src.start();
-  }
 
   function makeDrone() {
     for (const o of drone) { try { o.stop(); } catch { /* already stopped */ } }
@@ -155,9 +127,8 @@ export function createAudio() {
       timer = setInterval(schedule, 180);
     },
 
-    /** @param progress 0 at the summit, 1 at the valley floor */
-    setProgress(progress) {
-      const next = ROOTS[Math.min(ROOTS.length - 1, Math.floor(progress * ROOTS.length))];
+    setZone(key) {
+      const next = ZONE_ROOT[key] || ZONE_ROOT.meadow;
       if (!ctx || next === root) return;
       root = next;
       makeDrone();
@@ -167,7 +138,7 @@ export function createAudio() {
      * A beacon's voice: a sustained tone that stays for the rest of the run.
      * The nth beacon takes the nth scale degree, so the chord grows upward.
      */
-    campfire(index) {
+    beacon(index) {
       if (!ctx) return;
       const step = SCALE[index % SCALE.length] + 12 * Math.floor(index / SCALE.length);
       const osc = ctx.createOscillator();
@@ -189,39 +160,34 @@ export function createAudio() {
       }
     },
 
-    coin() {
+    sparkle() {
       if (!ctx || muted) return;
       const step = SCALE[Math.floor(Math.random() * SCALE.length)];
       pluck(semis(root, step + 36), ctx.currentTime, 0.05, 0.7);
     },
 
-    /** A short upward breath as the fox leaves the ground. */
-    launch() {
+    pulse() {
       if (!ctx || muted) return;
-      noise(0.26, 240, 1500, 0.075);
-    },
+      // filtered noise sweep — a breath rather than a bang
+      const len = Math.floor(ctx.sampleRate * 0.5);
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
 
-    /**
-     * Landing a trick. The chord climbs with the number of flips, so a double
-     * sounds like more than a single without needing a number on screen.
-     */
-    trick(flips = 1) {
-      if (!ctx || muted) return;
-      for (let i = 0; i < 2 + flips; i++) {
-        pluck(semis(root, SCALE[i % SCALE.length] + 24 + flips * 5),
-          ctx.currentTime + i * 0.07, 0.075, 1.5);
-      }
-    },
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.setValueAtTime(320, ctx.currentTime);
+      bp.frequency.exponentialRampToValueAtTime(2400, ctx.currentTime + 0.42);
+      bp.Q.value = 1.4;
 
-    grind() {
-      if (!ctx || muted) return;
-      noise(0.5, 1600, 2600, 0.05);
-    },
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.16, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.5);
 
-    /** A dull thud, deliberately unmusical — the one sound that is a mistake. */
-    tumble() {
-      if (!ctx || muted) return;
-      noise(0.34, 420, 130, 0.11);
+      src.connect(bp).connect(g).connect(bus);
+      src.start();
     },
 
     land(strength) {
