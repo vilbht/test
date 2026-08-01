@@ -15,7 +15,7 @@ import {
 } from '../core/bodies.mjs';
 import { generateLevel, zoneAt, GROUND_Y } from '../core/level.mjs';
 import { createRun, stepRules, stepTrackers, RULES } from '../core/rules.mjs';
-import { GreyboxFox } from './art/fox.js';
+import { ProceduralFox, GreyboxFox, foxTailForces, foxTailSpread } from './art/fox.js';
 
 const VW = 960;
 const VH = 540;
@@ -71,11 +71,14 @@ const clock = createClock();
 // Rest length is short on purpose: the tapered links sum to ~28px at spread 1,
 // reaching ~65px unfurled at a sprint. Longer than that and a 34px-tall fox
 // trails a whip instead of a brush.
-const tail = createChain({ x: body.x, y: body.y - 20, count: 11, segment: 3.6, taper: 0.05 });
+const tail = createChain({ x: body.x, y: body.y - 20, count: 11, segment: 3.0, taper: 0.05 });
 const lean = createSpring(0);
 const cam = { x: 0, y: 0, shake: 0 };
 
-const fox = GreyboxFox;
+// ?art=grey falls back to flat boxes, for judging movement without art in the way
+const fox = new URLSearchParams(location.search).get('art') === 'grey'
+  ? GreyboxFox
+  : ProceduralFox;
 
 let elapsed = 0;
 let gait = 0;
@@ -158,21 +161,14 @@ function step(dt) {
  * to full drama at a sprint or mid-leap. The solver eases it; we only set a target.
  */
 function stepTail(dt) {
-  const speed = Math.abs(body.vx) / TUNING.runSpeed;
-  const air = body.onGround ? 0 : 0.4;
-  tail.spreadTarget = 1 + speed * 1.0 + air;
-
   const facing = facingOf();
-  const anchorX = body.x - facing * 7;
-  const anchorY = body.y - 21;
-  const w = windAt(level.winds, body.x, body.y - body.h / 2, elapsed);
+  tail.spreadTarget = foxTailSpread(body.vx, !body.onGround, TUNING.runSpeed);
 
+  const w = windAt(level.winds, body.x, body.y - body.h / 2, elapsed);
   stepChain(tail, dt, {
-    anchorX, anchorY,
-    gravity: 780,
-    damping: 0.982,
-    iterations: 6,
-    wind: { x: w.x - body.vx * 1.7, y: w.y - body.vy * 0.55 },
+    anchorX: body.x - facing * 7,
+    anchorY: body.y - 21,
+    ...foxTailForces({ facing, vx: body.vx, vy: body.vy, wind: w }),
   });
 }
 
@@ -239,9 +235,21 @@ function render(alpha) {
   // camera: lead the fox in the direction of travel, clamp to the world
   const lead = Math.max(-90, Math.min(140, body.vx * 0.34));
   const targetX = ix - VW * 0.36 + lead;
-  const targetY = Math.min(0, iy - VH * 0.72);
+
+  // Vertical follow uses a dead zone rather than tracking every hop, which would
+  // make the horizon bob on each stride. The band's lower edge sits just below
+  // standing height, so ordinary running never moves it — but a fall does, and
+  // must: clamping the camera to ground level lets the fox drop out of sight
+  // entirely while the player is still trying to steer it.
+  const top = cam.y + VH * 0.25;
+  const bottom = cam.y + VH * 0.78;
+  let targetY = cam.y;
+  if (iy < top) targetY = iy - VH * 0.25;
+  else if (iy > bottom) targetY = iy - VH * 0.78;
+  targetY = Math.max(-260, Math.min(340, targetY));
+
   cam.x += (targetX - cam.x) * 0.09;
-  cam.y += (targetY - cam.y) * 0.06;
+  cam.y += (targetY - cam.y) * 0.08;
   cam.x = Math.max(0, Math.min(level.width - VW, cam.x));
 
   const shakeX = (Math.random() - 0.5) * cam.shake;
