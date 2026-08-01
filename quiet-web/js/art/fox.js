@@ -67,6 +67,90 @@ export function foxTailSpread(speed, airborne, runSpeed = 235) {
   return 1 + Math.min(1, Math.abs(speed) / runSpeed) * 1.0 + (airborne ? 0.4 : 0);
 }
 
+/**
+ * Sprite sheet contract.
+ *
+ * Everything below is authored at `scale` sheet-pixels per world unit, so a
+ * frame is a fixed box with the fox's *feet-centre* pinned at (anchorX, anchorY).
+ * That anchor is the whole reason the layout is shared code rather than a note
+ * in a readme: the game positions the fox by its feet, so art that is centred
+ * on the frame instead will look correct standing still and sink into the floor
+ * the moment it moves.
+ *
+ * The sheet holds the body only. The tail stays procedural because it is a
+ * physics chain that lengthens with speed and whips on direction changes — a
+ * drawn tail would throw all of that away. Pass `includesTail: true` if you
+ * would rather draw it yourself, and the solver's tail is suppressed.
+ */
+export const SPRITE_LAYOUT = Object.freeze({
+  frame: 192,        // each cell is 192 x 192
+  anchorX: 64,       // feet-centre within the cell
+  anchorY: 168,
+  scale: 4,          // sheet pixels per world unit
+  states: Object.freeze({
+    //          row, frames, fps      what the frames are
+    idle: { row: 0, frames: 4, fps: 5 },
+    run: { row: 1, frames: 8, fps: 15 },
+    air: { row: 2, frames: 4, fps: 0 },   // 0 rise · 1 apex · 2 fall · 3 land
+  }),
+  cols: 8,
+  rowCount: 3,
+});
+
+/**
+ * A fox drawn from a sprite sheet matching SPRITE_LAYOUT.
+ *
+ * Drop-in for ProceduralFox: same draw(ctx, x, y, state) signature, so swapping
+ * is one line in main.js and nothing else in the game knows the difference.
+ */
+export function createSpriteFox(image, {
+  layout = SPRITE_LAYOUT,
+  includesTail = false,
+} = {}) {
+  return {
+    name: 'sprite',
+
+    draw(ctx, x, y, s) {
+      const { facing, squash, lean, airborne, blocking, tail, phase, speed } = s;
+
+      drawContactShadow(ctx, x, y, airborne);
+      if (!includesTail) drawTail(ctx, tail);
+
+      const cell = pickCell(layout, { airborne, speed, phase, vy: s.vy });
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(lean * 0.5);
+      ctx.scale((squash.sx * facing) / layout.scale, squash.sy / layout.scale);
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(
+        image,
+        cell.col * layout.frame, cell.row * layout.frame, layout.frame, layout.frame,
+        -layout.anchorX, -layout.anchorY, layout.frame, layout.frame,
+      );
+      ctx.restore();
+
+      if (blocking > 0) drawShield(ctx, x, y - 18, blocking);
+    },
+  };
+}
+
+/** Which cell of the sheet this state should show. */
+function pickCell(layout, { airborne, speed, phase, vy = 0 }) {
+  const { states } = layout;
+
+  if (airborne) {
+    const frame = vy < -90 ? 0 : (vy < 90 ? 1 : 2);
+    return { row: states.air.row, col: frame };
+  }
+  if (Math.abs(speed) < 12) {
+    const n = states.idle.frames;
+    return { row: states.idle.row, col: Math.floor(phase * states.idle.fps) % n };
+  }
+  const n = states.run.frames;
+  return { row: states.run.row, col: Math.floor(phase * 1.6) % n };
+}
+
 // ---------------------------------------------------------------- greybox
 
 export const GreyboxFox = {
@@ -116,7 +200,7 @@ export const ProceduralFox = {
   draw(ctx, x, y, s) {
     const { facing, squash, lean, airborne, blocking, tail, phase, speed } = s;
 
-    drawContactShadow(ctx, x, y, airborne);
+    if (s.shadow !== false) drawContactShadow(ctx, x, y, airborne);
 
     // The tail lives in world space because the verlet solver is anchored to the
     // fox's hips in world coordinates — so it is drawn before, and outside, the
@@ -217,7 +301,10 @@ function drawLegs(ctx, phase, run, airborne, far) {
 }
 
 function drawLeg(ctx, hx, hy, angle, far) {
-  const len = 15;
+  // Long enough that a straight leg puts the paw on the ground rather than a
+  // couple of pixels above it — a gap that is invisible in motion and glaring
+  // the moment the fox stands still or is traced for a sprite sheet.
+  const len = 17.5;
   const knee = len * 0.55;
   const grad = ctx.createLinearGradient(hx, hy, hx, hy + len);
   grad.addColorStop(0, PALETTE.belly);

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fox sprite sheet</title>
+<style>
+  body { margin: 0; background: #12081F; color: #F7EFEA;
+         font: 13px ui-rounded, system-ui, sans-serif; }
+  canvas { display: block; margin: 0 auto; image-rendering: pixelated; }
+  p { text-align: center; opacity: 0.55; padding: 12px; margin: 0; line-height: 1.6; }
+  code { background: rgba(255,255,255,0.08); padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<canvas id="sheet"></canvas>
+<p>
+  Sprite sheet template. <code>?guides=1</code> overlays the frame grid and anchors ·
+  <code>?empty=1</code> draws guides only, for painting from scratch.
+</p>
+
+<script type="module">
+// Renders the current ProceduralFox into the exact grid SPRITE_LAYOUT describes,
+// so replacement art has a template to paint over rather than a written spec to
+// interpret. Guides are a separate pass and never touch the transparent version.
+import { ProceduralFox, SPRITE_LAYOUT } from '../js/art/fox.js';
+
+const params = new URLSearchParams(location.search);
+const guides = params.get('guides') === '1';
+const empty = params.get('empty') === '1';
+
+const L = SPRITE_LAYOUT;
+const canvas = document.getElementById('sheet');
+canvas.width = L.cols * L.frame;
+canvas.height = L.rowCount * L.frame;
+const ctx = canvas.getContext('2d');
+
+/**
+ * Every cell the layout defines, with the state that should be drawn in it.
+ * `phase` is chosen so a run cycle reads as one full stride across its eight
+ * frames, which is what makes the sheet loop rather than stutter.
+ */
+function cells() {
+  const out = [];
+  const S = L.states;
+
+  for (let i = 0; i < S.idle.frames; i++) {
+    out.push({
+      row: S.idle.row, col: i, label: `idle ${i + 1}`,
+      state: { speed: 0, vy: 0, airborne: false, phase: (i / S.idle.frames) * Math.PI * 2 },
+    });
+  }
+  for (let i = 0; i < S.run.frames; i++) {
+    out.push({
+      row: S.run.row, col: i, label: `run ${i + 1}`,
+      state: { speed: 235, vy: 0, airborne: false, phase: (i / S.run.frames) * Math.PI * 2 },
+    });
+  }
+  const air = [
+    { label: 'rise', vy: -420, land: 0 },
+    { label: 'apex', vy: -20, land: 0 },
+    { label: 'fall', vy: 520, land: 0 },
+    { label: 'land', vy: 0, land: 0.3 },
+  ];
+  air.forEach((a, i) => {
+    out.push({
+      row: S.air.row, col: i, label: a.label,
+      state: { speed: 200, vy: a.vy, airborne: a.label !== 'land', phase: 1.1, land: a.land },
+    });
+  });
+  return out;
+}
+
+/** Volume-preserving squash, matching what the game feeds the renderer. */
+function squashFor(vy, land) {
+  const air = Math.max(-1, Math.min(1, vy / 860));
+  const sy = (1 + Math.abs(air) * 0.16) * (1 - Math.min(0.34, land || 0));
+  return { sx: 1 / Math.sqrt(sy), sy };
+}
+
+for (const cell of cells()) {
+  const ox = cell.col * L.frame + L.anchorX;
+  const oy = cell.row * L.frame + L.anchorY;
+
+  if (!empty) {
+    ctx.save();
+    ctx.translate(ox, oy);
+    ctx.scale(L.scale, L.scale);
+    ProceduralFox.draw(ctx, 0, 0, {
+      w: 22,
+      h: 34,
+      facing: 1,
+      phase: cell.state.phase,
+      airborne: cell.state.airborne,
+      onGround: !cell.state.airborne,
+      blocking: 0,
+      tail: null,                 // body only — the tail stays a physics chain
+      shadow: false,              // the game draws the contact shadow itself
+      squash: squashFor(cell.state.vy, cell.state.land),
+      lean: Math.min(0.5, (cell.state.speed / 235) * 0.34),
+      speed: cell.state.speed,
+    });
+    ctx.restore();
+  }
+
+  if (!guides && !empty) continue;
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(144,89,255,0.55)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(cell.col * L.frame + 0.5, cell.row * L.frame + 0.5, L.frame - 1, L.frame - 1);
+
+  // ground line and anchor crosshair — the feet sit exactly here
+  ctx.strokeStyle = 'rgba(255,201,60,0.75)';
+  ctx.beginPath();
+  ctx.moveTo(cell.col * L.frame, oy + 0.5);
+  ctx.lineTo(cell.col * L.frame + L.frame, oy + 0.5);
+  ctx.moveTo(ox + 0.5, oy - 12);
+  ctx.lineTo(ox + 0.5, oy + 12);
+  ctx.stroke();
+
+  ctx.fillStyle = 'rgba(247,239,234,0.8)';
+  ctx.font = '600 13px ui-monospace, monospace';
+  ctx.fillText(cell.label, cell.col * L.frame + 8, cell.row * L.frame + 20);
+  ctx.restore();
+}
+</script>
+</body>
+</html>

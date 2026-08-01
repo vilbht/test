@@ -15,7 +15,9 @@ import {
 } from '../core/bodies.mjs';
 import { generateLevel, zoneAt } from '../core/level.mjs';
 import { createRun, stepRules, stepTrackers, RULES } from '../core/rules.mjs';
-import { ProceduralFox, GreyboxFox, foxTailForces, foxTailSpread } from './art/fox.js';
+import {
+  ProceduralFox, GreyboxFox, createSpriteFox, foxTailForces, foxTailSpread,
+} from './art/fox.js';
 import { drawSky, drawSun, drawParallax, drawGround } from './art/scenery.js';
 import {
   drawSparkle, drawBeacon, drawTracker, drawCrumb, drawCrate, drawSeesaw,
@@ -84,10 +86,22 @@ const lean = createSpring(0);
 const cam = { x: 0, y: 0, shake: 0 };
 let camFocusY = level.start.y;
 
-// ?art=grey falls back to flat boxes, for judging movement without art in the way
-const fox = new URLSearchParams(location.search).get('art') === 'grey'
-  ? GreyboxFox
-  : ProceduralFox;
+// ?art=grey falls back to flat boxes, for judging movement without art in the way.
+// ?art=sprite loads assets/fox.png — see assets/README.md for the sheet layout.
+const artMode = new URLSearchParams(location.search).get('art');
+let fox = artMode === 'grey' ? GreyboxFox : ProceduralFox;
+
+if (artMode === 'sprite') {
+  const sheet = new Image();
+  sheet.src = new URLSearchParams(location.search).get('sheet') || 'assets/fox.png';
+  // Swapped in only once it has actually decoded. Failing back to the procedural
+  // fox matters more than it sounds: a missing sheet would otherwise leave an
+  // invisible player character with no error to explain why.
+  sheet.addEventListener('load', () => { fox = createSpriteFox(sheet); });
+  sheet.addEventListener('error', () => {
+    console.warn(`fox sheet "${sheet.src}" did not load — keeping the procedural fox`);
+  });
+}
 
 let elapsed = 0;
 let gait = 0;
