@@ -1,137 +1,179 @@
-// Rules: a calm game is only calm if the clamps actually hold.
+// Rules. A calm game is only calm if the clamps hold, and the one mechanic
+// worth guarding hardest is that a landed flip is what shakes trackers off.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { FIXED_DT } from '../core/physics.mjs';
 import { createRun, stepRules, stepTrackers, RULES } from '../core/rules.mjs';
-import { generateLevel, groundYAt } from '../core/level.mjs';
-import { createBody, FIXED_DT } from '../core/physics.mjs';
+import { generateLevel } from '../core/level.mjs';
+import { createRider, stepRider, RIDE } from '../core/ride.mjs';
+import { surfaceY } from '../core/terrain.mjs';
 
-const NO_INPUT = { pulsePressed: false };
+const NO_EVENTS = {
+  launched: false, landed: false, tumbled: false,
+  flips: 0, grindStart: false, grindEnd: false, rescued: false,
+};
 
-function fixture(seed = 3) {
+function fixture(seed = 5) {
   const level = generateLevel(seed);
-  const body = createBody({ x: level.start.x, y: level.start.y });
-  return { level, body, run: createRun() };
+  const rider = createRider(level.terrain);
+  return { level, rider, run: createRun() };
 }
 
-test('focus regenerates but never exceeds one', () => {
-  const { level, body, run } = fixture();
-  run.focus = 0;
-  for (let i = 0; i < 2000; i++) stepRules(run, level, body, NO_INPUT, FIXED_DT);
-  assert.equal(run.focus, 1);
+test('coins are collected once and counted once', () => {
+  const { level, rider, run } = fixture();
+  const coin = level.coins[0];
+  rider.x = coin.x;
+  rider.y = coin.y;
+
+  stepRules(run, level, rider, NO_EVENTS, FIXED_DT);
+  assert.equal(run.coins, 1);
+  stepRules(run, level, rider, NO_EVENTS, FIXED_DT);
+  assert.equal(run.coins, 1, 'an already-taken coin must not re-trigger');
 });
 
-test('a pulse costs focus and is rate limited', () => {
-  const { level, body, run } = fixture();
-  const first = stepRules(run, level, body, { pulsePressed: true }, FIXED_DT);
-  assert.equal(first.pulsed, true);
-  assert.ok(Math.abs(run.focus - (1 - RULES.pulseCost)) < 1e-6);
+test('a campfire lights as you pass, with no need to stop', () => {
+  // The platformer version made you stand still to charge one. In a momentum
+  // game there is no standing still, so passing close is the whole interaction.
+  const { level, rider, run } = fixture();
+  const fire = level.beacons[0];
+  rider.x = fire.x;
+  rider.y = fire.y;
 
-  const second = stepRules(run, level, body, { pulsePressed: true }, FIXED_DT);
-  assert.equal(second.pulsed, false, 'cooldown should block a second pulse');
+  const e = stepRules(run, level, rider, NO_EVENTS, FIXED_DT);
+  assert.equal(e.litBeacon, fire);
+  assert.equal(run.lit, 1);
+  assert.equal(run.fact, fire.fact);
+  assert.ok(run.factTimer > 0);
+
+  stepRules(run, level, rider, NO_EVENTS, FIXED_DT);
+  assert.equal(run.lit, 1, 'must not count twice');
 });
 
-test('a pulse cannot be fired without the focus to pay for it', () => {
-  const { level, body, run } = fixture();
-  run.focus = 0;
-  const e = stepRules(run, level, body, { pulsePressed: true }, FIXED_DT);
-  assert.equal(e.pulsed, false);
-  assert.ok(run.focus >= 0, 'focus must never go negative');
+test('the fact card expires on its own', () => {
+  const { level, rider, run } = fixture();
+  const fire = level.beacons[0];
+  rider.x = fire.x;
+  rider.y = fire.y;
+  stepRules(run, level, rider, NO_EVENTS, FIXED_DT);
+  assert.ok(run.fact);
+
+  for (let i = 0; i < 120 * (RULES.factTime + 1); i++) {
+    stepRules(run, level, rider, NO_EVENTS, FIXED_DT);
+  }
+  assert.equal(run.fact, null);
+  assert.equal(run.factTimer, 0);
 });
 
-test('a pulse disperses nearby trackers and leaves distant ones alone', () => {
-  const { level, body, run } = fixture();
-  const near = { x: body.x + 20, y: body.y - 20, clinging: true, dispersed: false, vx: 0, origin: body.x, range: 10, home: body.y - 20, phase: 0 };
-  const far = { x: body.x + 900, y: body.y - 20, clinging: false, dispersed: false, vx: 0, origin: body.x + 900, range: 10, home: body.y - 20, phase: 0 };
-  level.trackers = [near, far];
+test('clipping a rock costs momentum, once', () => {
+  const { level, rider, run } = fixture();
+  const rock = level.rocks[0];
+  rider.x = rock.x;
+  rider.y = rock.y;
+  rider.onGround = true;
+  rider.speed = 500;
 
-  const e = stepRules(run, level, body, { pulsePressed: true }, FIXED_DT);
-  assert.equal(e.dispersed, 1);
-  assert.equal(near.dispersed, true);
-  assert.equal(near.clinging, false);
-  assert.equal(far.dispersed, false);
+  const e = stepRules(run, level, rider, NO_EVENTS, FIXED_DT);
+  assert.equal(e.rock, true);
+  assert.ok(rider.speed < 500 * 0.7, `speed only fell to ${rider.speed.toFixed(0)}`);
+
+  const after = rider.speed;
+  stepRules(run, level, rider, NO_EVENTS, FIXED_DT);
+  assert.equal(rider.speed, after, 'the same rock must not bite twice');
 });
 
-test('clinging trackers slow the fox but never stall it', () => {
-  const { level, body, run } = fixture();
-  level.trackers = Array.from({ length: 40 }, () => ({
-    x: body.x, y: body.y - body.h / 2, clinging: true, dispersed: false,
-    vx: 0, origin: body.x, range: 10, home: body.y, phase: 0,
+test('a rock cleared in the air does nothing', () => {
+  const { level, rider, run } = fixture();
+  const rock = level.rocks[0];
+  rider.x = rock.x;
+  rider.y = rock.y;
+  rider.onGround = false;
+  rider.speed = 500;
+
+  const e = stepRules(run, level, rider, NO_EVENTS, FIXED_DT);
+  assert.equal(e.rock, false);
+  assert.equal(rider.speed, 500);
+  assert.equal(rock.hit, false);
+});
+
+test('trackers cling on contact and drag without stalling the run', () => {
+  const { level, rider, run } = fixture();
+  level.trackers = Array.from({ length: 12 }, () => ({
+    x: rider.x, y: rider.y, home: rider.y, origin: rider.x,
+    range: 20, vx: 0, phase: 0, clinging: false, dispersed: false,
   }));
-  stepRules(run, level, body, NO_INPUT, FIXED_DT);
-  assert.ok(run.speedScale < 1, 'cling should slow the fox');
-  assert.equal(run.speedScale, RULES.minSpeedScale, 'and clamp at the floor');
+  rider.speed = 400;
+
+  stepRules(run, level, rider, NO_EVENTS, FIXED_DT);
+  assert.equal(run.clung, RULES.maxCling, 'cling should clamp');
+
+  for (let i = 0; i < 600; i++) stepRules(run, level, rider, NO_EVENTS, FIXED_DT);
+  assert.ok(rider.speed < 400, 'cling should drag');
+  assert.ok(rider.speed >= RIDE.minSpeed, 'but never stall the fox');
 });
 
-test('falling off the world lifts the fox back onto ground, losing nothing', () => {
-  const { level, body, run } = fixture();
-  run.sparkles = 5;
-  body.x = 600;
-  body.y = RULES.fallLimit + 200;
-  body.vy = 900;
+test('landing a flip shakes every clinging tracker off', () => {
+  // The mechanic the whole one-button design rests on: there is no shield
+  // button any more, so the trick *is* the answer to being slowed down.
+  const { level, rider, run } = fixture();
+  level.trackers = Array.from({ length: 6 }, () => ({
+    x: rider.x, y: rider.y, home: rider.y, origin: rider.x,
+    range: 20, vx: 0, phase: 0, clinging: true, dispersed: false,
+  }));
 
-  const e = stepRules(run, level, body, NO_INPUT, FIXED_DT);
-  assert.equal(e.respawned, true);
-  assert.equal(body.vy, 0);
-  assert.equal(run.sparkles, 5, 'a no-fail game must not take collectibles back');
-  assert.notEqual(groundYAt(level, body.x), null, 'lifted onto real ground');
-  assert.equal(body.y, groundYAt(level, body.x));
+  stepRules(run, level, rider, NO_EVENTS, FIXED_DT);
+  assert.equal(run.clung, RULES.maxCling);
+
+  const e = stepRules(run, level, rider, { ...NO_EVENTS, flips: 1 }, FIXED_DT);
+  assert.equal(e.shook, 6);
+  assert.equal(run.clung, 0);
+  assert.equal(run.flips, 1);
+  assert.equal(level.trackers.every((t) => !t.clinging), true);
 });
 
-test('a beacon lights only after standing near it, then shows its fact once', () => {
-  const { level, body, run } = fixture();
-  const beacon = level.beacons[0];
-  body.x = beacon.x;
-  body.y = beacon.y;
-
-  let lit = null;
-  for (let i = 0; i < 400; i++) {
-    const e = stepRules(run, level, body, NO_INPUT, FIXED_DT);
-    if (e.litBeacon) lit = e.litBeacon;
-  }
-  assert.equal(lit, beacon);
-  assert.equal(run.lit, 1);
-  assert.equal(run.fact, beacon.fact);
-
-  // walking away and back must not re-light or double-count it
-  for (let i = 0; i < 400; i++) stepRules(run, level, body, NO_INPUT, FIXED_DT);
-  assert.equal(run.lit, 1);
+test('a tumble does not shake trackers off — only a completed flip does', () => {
+  const { level, rider, run } = fixture();
+  level.trackers = [{
+    x: rider.x, y: rider.y, home: rider.y, origin: rider.x,
+    range: 20, vx: 0, phase: 0, clinging: true, dispersed: false,
+  }];
+  const e = stepRules(run, level, rider, { ...NO_EVENTS, tumbled: true, flips: 0 }, FIXED_DT);
+  assert.equal(e.shook, 0);
+  assert.equal(run.clung, 1);
 });
 
-test('beacon charge decays when you leave before it finishes', () => {
-  const { level, body, run } = fixture();
-  const beacon = level.beacons[0];
-  body.x = beacon.x;
-  body.y = beacon.y;
-  for (let i = 0; i < 40; i++) stepRules(run, level, body, NO_INPUT, FIXED_DT);
-  const partial = beacon.charge;
-  assert.ok(partial > 0 && partial < 1);
-
-  body.x = beacon.x + 800;
-  for (let i = 0; i < 40; i++) stepRules(run, level, body, NO_INPUT, FIXED_DT);
-  assert.ok(beacon.charge < partial, 'charge should ebb away');
-  assert.ok(beacon.charge >= 0);
+test('the run finishes at the bottom of the mountain', () => {
+  const { level, rider, run } = fixture();
+  assert.equal(run.finished, false);
+  rider.x = level.length - 100;
+  stepRules(run, level, rider, NO_EVENTS, FIXED_DT);
+  assert.equal(run.finished, true);
 });
 
-test('sparkles are collected once and counted once', () => {
-  const { level, body, run } = fixture();
-  const s = level.sparkles[0];
-  body.x = s.x;
-  body.y = s.y + body.h / 2;
-  stepRules(run, level, body, NO_INPUT, FIXED_DT);
-  assert.equal(run.sparkles, 1);
-  stepRules(run, level, body, NO_INPUT, FIXED_DT);
-  assert.equal(run.sparkles, 1, 'already-collected sparkles must not re-trigger');
-});
-
-test('trackers patrol within range and crumbs stay on the ground', () => {
-  const { level, body } = fixture();
-  const patrolling = level.trackers.filter((t) => !t.clinging).slice(0, 20);
-  for (let i = 0; i < 1200; i++) stepTrackers(level, body, FIXED_DT, i * FIXED_DT);
+test('trackers patrol within range and stay out of chasms', () => {
+  const { level, rider } = fixture();
+  const patrolling = level.trackers.filter((t) => !t.clinging).slice(0, 25);
+  for (let i = 0; i < 1800; i++) stepTrackers(level, rider, FIXED_DT, i * FIXED_DT);
   for (const t of patrolling) {
-    assert.ok(Math.abs(t.x - t.origin) <= t.range + 4, 'tracker wandered off its patrol');
+    assert.ok(Math.abs(t.x - t.origin) <= t.range + 6, 'tracker wandered off its patrol');
+    assert.ok(Number.isFinite(t.x) && Number.isFinite(t.y));
   }
-  for (const c of level.crumbs.slice(0, 20)) {
-    assert.ok(c.x >= c.min - 4 && c.x <= c.max + 4, 'crumb left its slab');
+});
+
+test('a whole descent with the rules attached stays finite and counts up', () => {
+  const { level, rider, run } = fixture(9);
+  for (let i = 0; i < 120 * 200; i++) {
+    const e = stepRider(rider, level.terrain, level.rails,
+      { jumpPressed: i % 140 === 0, jumpHeld: i % 11 < 6 }, FIXED_DT);
+    stepRules(run, level, rider, e, FIXED_DT);
+    stepTrackers(level, rider, FIXED_DT, i * FIXED_DT);
+    if (run.finished) break;
   }
+  assert.equal(run.finished, true, 'should reach the bottom');
+  assert.ok(run.coins > 0, 'should have picked something up on the way');
+  assert.ok(run.lit > 0, 'should have lit at least one campfire');
+  for (const v of [rider.x, rider.y, rider.speed, run.coins, run.distance]) {
+    assert.ok(Number.isFinite(v));
+  }
+  void surfaceY;
 });

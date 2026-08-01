@@ -1,150 +1,147 @@
-// rules.mjs — the game's state machine: focus, tracker cling, beacon charging.
+// rules.mjs — coins, campfires, trackers, and what a landed trick is worth.
 //
-// No damage, no lives, no fail state. The only pressure is friction: trackers
-// cling and slow you down until you shake them off with a shield pulse, which
-// costs focus that recovers on its own. Everything here is pure so the whole
-// rule set can be stepped and asserted without a canvas.
+// No damage, no lives, no fail state. The only currency is momentum: rocks and
+// clinging trackers take speed away, clean landings and grinds give it back.
+//
+// The one real change from the platformer rules is how trackers come off. There
+// is no shield button any more — the game is one button now, as Alto's is — so
+// shaking them off is folded into the trick system instead: land a flip and they
+// scatter. That makes the privacy mechanic and the trick mechanic the same
+// action rather than two things competing for the player's attention.
 
-import { groundYAt, safeSpotNear, GROUND_Y } from './level.mjs';
+import { surfaceY, inChasm } from './terrain.mjs';
+import { RIDE } from './ride.mjs';
 
 export const RULES = Object.freeze({
-  focusRegen: 0.34,       // per second
-  pulseCost: 0.34,
-  pulseRadius: 132,
-  pulseCooldown: 0.42,
-  clingRadius: 20,
-  clingSlow: 0.12,        // speed lost per clinging tracker
-  minSpeedScale: 0.45,    // never slowed to a crawl
-  beaconRadius: 78,
-  beaconChargeRate: 0.85, // per second while stood near
-  sparkleRadius: 26,
-  fallLimit: GROUND_Y + 360,
+  coinRadius: 26,
+  beaconRadius: 96,
+  rockRadius: 20,
+  rockCost: 0.62,        // fraction of speed kept after clipping a rock
+  clingRadius: 24,
+  clingDrag: 0.10,       // extra friction per clinging tracker
+  maxCling: 5,
+  factTime: 9,
 });
 
 export function createRun() {
   return {
-    focus: 1,
-    pulse: 0,           // seconds remaining on the visible pulse ring
-    cooldown: 0,
-    sparkles: 0,
+    coins: 0,
     lit: 0,
+    flips: 0,
+    bestFlip: 0,
+    grinds: 0,
     clung: 0,
-    speedScale: 1,
-    fact: null,         // the fact card currently showing
-    factTimer: 0,
     distance: 0,
+    fact: null,
+    factTimer: 0,
     finished: false,
   };
 }
 
 /**
- * One rules step.
+ * One rules step. Reads the rider, mutates the world, and returns what happened
+ * so audio and particles can react without re-deriving any of it.
  *
- * @param input  { pulsePressed }
- * @returns events worth reacting to in audio/visuals
+ * @param rideEvents the return value of stepRider for this same step
  */
-export function stepRules(run, level, body, input, dt) {
-  const events = { collected: 0, litBeacon: null, dispersed: 0, pulsed: false, respawned: false };
+export function stepRules(run, level, rider, rideEvents, dt) {
+  const events = {
+    coins: 0, litBeacon: null, rock: false, shook: 0, flips: rideEvents.flips,
+  };
 
-  run.focus = Math.min(1, run.focus + RULES.focusRegen * dt);
-  run.pulse = Math.max(0, run.pulse - dt);
-  run.cooldown = Math.max(0, run.cooldown - dt);
+  const { terrain } = level;
+  run.distance = Math.max(run.distance, rider.x);
   run.factTimer = Math.max(0, run.factTimer - dt);
   if (run.factTimer === 0) run.fact = null;
-  run.distance = Math.max(run.distance, body.x);
 
-  // ---- fall recovery: lifted back to the last solid ground, never punished
-  if (body.y > RULES.fallLimit) {
-    const spot = safeSpotNear(level, body.x - 40);
-    body.x = spot.x;
-    body.y = spot.y;
-    body.vx = 0;
-    body.vy = 0;
-    events.respawned = true;
+  // ---- coins
+  for (const c of level.coins) {
+    if (c.got) continue;
+    if (Math.hypot(c.x - rider.x, c.y - rider.y) > RULES.coinRadius) continue;
+    c.got = true;
+    run.coins++;
+    events.coins++;
   }
 
-  // ---- shield pulse: the only "attack", and it disperses rather than destroys
-  if (input.pulsePressed && run.cooldown === 0 && run.focus >= RULES.pulseCost) {
-    run.focus -= RULES.pulseCost;
-    run.pulse = 0.38;
-    run.cooldown = RULES.pulseCooldown;
-    events.pulsed = true;
-
-    for (const t of level.trackers) {
-      if (t.dispersed) continue;
-      if (Math.hypot(t.x - body.x, t.y - (body.y - body.h / 2)) > RULES.pulseRadius) continue;
-      t.dispersed = true;
-      t.clinging = false;
-      events.dispersed++;
-    }
-    for (const c of level.crumbs) {
-      if (c.dispersed) continue;
-      if (Math.hypot(c.x - body.x, c.y - body.y) > RULES.pulseRadius) continue;
-      c.dispersed = true;
-      events.dispersed++;
-    }
+  // ---- campfires light as you pass. They cannot ask the player to stop and
+  // wait: in a momentum game there is no standing still, and a collectible that
+  // demands one would fight everything else about the ride.
+  for (const b of level.beacons) {
+    if (b.lit) continue;
+    if (Math.abs(b.x - rider.x) > RULES.beaconRadius) continue;
+    if (Math.abs(b.y - rider.y) > 150) continue;
+    b.lit = true;
+    b.charge = 1;
+    run.lit++;
+    run.fact = b.fact;
+    run.factTimer = RULES.factTime;
+    events.litBeacon = b;
   }
 
-  // ---- trackers cling on contact and ride along, slowing the fox
+  // ---- rocks cost momentum, once each
+  for (const rock of level.rocks) {
+    if (rock.hit) continue;
+    if (Math.hypot(rock.x - rider.x, rock.y - rider.y) > RULES.rockRadius + rock.r) continue;
+    if (!rider.onGround) continue;               // cleared it in the air
+    rock.hit = true;
+    rider.speed = Math.max(RIDE.minSpeed, rider.speed * RULES.rockCost);
+    rider.tumble = Math.max(rider.tumble, 0.4);
+    events.rock = true;
+  }
+
+  // ---- trackers cling on contact
   let clung = 0;
   for (const t of level.trackers) {
     if (t.dispersed) continue;
-    const d = Math.hypot(t.x - body.x, t.y - (body.y - body.h / 2));
-    if (d < RULES.clingRadius) t.clinging = true;
+    if (!t.clinging && Math.hypot(t.x - rider.x, t.y - rider.y) < RULES.clingRadius) {
+      t.clinging = true;
+    }
     if (t.clinging) clung++;
   }
-  run.clung = clung;
-  run.speedScale = Math.max(RULES.minSpeedScale, 1 - clung * RULES.clingSlow);
 
-  // ---- sparkles
-  for (const s of level.sparkles) {
-    if (s.got) continue;
-    if (Math.hypot(s.x - body.x, s.y - (body.y - body.h / 2)) > RULES.sparkleRadius) continue;
-    s.got = true;
-    run.sparkles++;
-    events.collected++;
+  // ---- a landed flip shakes every one of them off
+  if (rideEvents.flips > 0) {
+    for (const t of level.trackers) {
+      if (!t.clinging) continue;
+      t.clinging = false;
+      t.dispersed = true;
+      events.shook++;
+    }
+    run.flips += rideEvents.flips;
+    run.bestFlip = Math.max(run.bestFlip, rideEvents.flips);
+    clung = 0;
+  }
+  if (rideEvents.grindStart) run.grinds++;
+
+  run.clung = Math.min(RULES.maxCling, clung);
+
+  // Cling is drag, not a speed cap: it makes the fox feel heavy and slow to wind
+  // up rather than pinning it to a number, which is the difference between an
+  // encumbrance and a punishment.
+  if (run.clung > 0 && rider.onGround) {
+    rider.speed = Math.max(
+      RIDE.minSpeed,
+      rider.speed - rider.speed * RULES.clingDrag * run.clung * dt,
+    );
   }
 
-  // ---- beacons charge by proximity; standing still is what lights them
-  for (const b of level.beacons) {
-    if (b.lit) continue;
-    const d = Math.hypot(b.x - body.x, b.y - body.y);
-    if (d > RULES.beaconRadius) {
-      b.charge = Math.max(0, b.charge - dt * 0.5);
-      continue;
-    }
-    b.charge = Math.min(1, b.charge + RULES.beaconChargeRate * dt);
-    if (b.charge >= 1) {
-      b.lit = true;
-      run.lit++;
-      run.fact = b.fact;
-      run.factTimer = 9;
-      events.litBeacon = b;
-    }
-  }
-
-  if (!run.finished && body.x >= level.width - 160) run.finished = true;
+  if (!run.finished && rider.x >= level.length - 200) run.finished = true;
   return events;
 }
 
-/** Trackers drift around their origin until they cling, then follow the fox. */
-export function stepTrackers(level, body, dt, t) {
+/** Trackers drift over the snow until they latch on, then ride along. */
+export function stepTrackers(level, rider, dt, t) {
   for (const k of level.trackers) {
     if (k.dispersed) continue;
     if (k.clinging) {
-      k.x += (body.x - k.x) * Math.min(1, 9 * dt);
-      k.y += (body.y - body.h / 2 - k.y) * Math.min(1, 9 * dt);
+      k.x += (rider.x - k.x) * Math.min(1, 10 * dt);
+      k.y += (rider.y - 16 - k.y) * Math.min(1, 10 * dt);
       continue;
     }
     k.x += k.vx * dt;
     if (k.x < k.origin - k.range || k.x > k.origin + k.range) k.vx *= -1;
-    k.y = k.home + Math.sin(t * 1.4 + k.phase) * 7;
+    if (inChasm(level.terrain, k.x)) k.vx *= -1;
+    k.y = k.home + Math.sin(t * 1.5 + k.phase) * 8;
   }
-  for (const c of level.crumbs) {
-    if (c.dispersed) continue;
-    c.x += c.vx * dt;
-    if (c.x < c.min || c.x > c.max) c.vx *= -1;
-    const g = groundYAt(level, c.x);
-    if (g !== null) c.y = g;
-  }
+  void surfaceY;
 }
