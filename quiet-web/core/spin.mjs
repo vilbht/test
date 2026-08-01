@@ -9,9 +9,13 @@
 //
 // The rotation never stops. An earlier pass parked the mark on a plateau to make
 // it readable, and a dead stop mid-flourish reads as a stutter — the eye sees a
-// dropped frame, not a pose. What replaces it is a *drift*: a slow, constant
-// background rotation that carries the mark through upright while the two fast
-// ramps are idle. Legibility comes from being slow, not from being still.
+// dropped frame, not a pose. What replaces it is a *drift*: a constant background
+// rotation that carries the mark through upright while the two fast ramps are
+// idle. It runs at about 330 deg/s — most of a turn a second, plainly still
+// spinning, but slow enough that the renderer stacks no motion blur on it, which
+// is what legibility actually depends on. A first attempt at this ran the drift
+// at a fifth of that: technically moving, and it still read as stopped, because
+// what the eye compares it against is the whip it just came out of.
 
 const TAU = Math.PI * 2;
 
@@ -29,8 +33,8 @@ const TAU = Math.PI * 2;
 
 const RAMP_IN_END = 0.34;      // the first whip is spent by here
 const RAMP_OUT_START = 0.66;   // the second starts here, as the mark begins to go
-const DRIFT_TURNS = 0.5;       // turns the drift contributes across the flourish
-const DRIFT_EASE = 0.2;        // fraction of it spent easing the drift in and out
+const DRIFT_TURNS = 1;         // turns the drift contributes across the flourish
+const DRIFT_EASE = 0.24;       // fraction of it spent easing the drift in and out
 const TOTAL_TURNS = 5;         // must be a whole number: the fox has to end upright
 
 /** ∫₀ᵘ smootherstep, normalised so a full ramp contributes exactly 0.5. */
@@ -67,7 +71,7 @@ const TURNS_IN = 2 - DRIFT_TURNS * driftProgress(MARK_MID);
 const TURNS_OUT = TOTAL_TURNS - DRIFT_TURNS - TURNS_IN;
 
 export const SPIN = Object.freeze({
-  duration: 1.6,
+  duration: 1.45,
 
   turnsIn: TURNS_IN,
   turnsOut: TURNS_OUT,

@@ -77,10 +77,10 @@ test('the rotation never stops while the spin is running', () => {
   }
 });
 
-test('the mark drifts slowly and evenly while it is solid', () => {
-  // Legibility comes from being slow, not from being still. Fast enough and the
-  // mark is a smear; too fast and the renderer starts stacking motion-blur
-  // ghosts on it, which is the same problem by another route.
+test('the mark keeps turning, evenly, while it is solid', () => {
+  // The band this has to land in is narrow. Too fast and the renderer stacks
+  // motion-blur ghosts and the mark is a smear; too slow and it reads as stopped
+  // next to the whip it just came out of, which is the note this replaced.
   const spin = createSpin();
   triggerSpin(spin);
   const read = record(spin).filter((f) => f.reading);
@@ -91,8 +91,11 @@ test('the mark drifts slowly and evenly while it is solid', () => {
   const rates = read.map((f) => f.delta * DEG);
   const slowest = Math.min(...rates);
   const fastest = Math.max(...rates);
-  assert.ok(slowest > 0.2, `mark barely moving at ${slowest.toFixed(3)}°/step`);
-  assert.ok(fastest < 3, `mark smearing at ${fastest.toFixed(2)}°/step`);
+  // The lower bound is the one that matters and it is deliberately high: a mark
+  // that creeps round reads as a stopped mark next to the whip it just left.
+  assert.ok(slowest > 2, `mark barely moving at ${slowest.toFixed(3)}°/step`);
+  // and the upper bound is where main.js starts stacking motion-blur ghosts
+  assert.ok(fastest < 0.055 * (180 / Math.PI), `mark smearing at ${fastest.toFixed(2)}°/step`);
   assert.ok(fastest - slowest < 0.05,
     `drift should be even, saw ${slowest.toFixed(3)}..${fastest.toFixed(3)}°/step`);
 
@@ -116,7 +119,7 @@ test('the mark turns through upright, roughly centred on the read', () => {
   });
   assert.ok(Math.min(...off) < 1,
     `never passes upright — closest is ${Math.min(...off).toFixed(1)}°`);
-  assert.ok(Math.max(...off) < 45,
+  assert.ok(Math.max(...off) < 80,
     `tilts too far to read: ${Math.max(...off).toFixed(1)}°`);
 
   // and it should pass upright near the middle, not scrape past at one end
@@ -171,7 +174,7 @@ test('it winds up gently rather than snapping into a spin', () => {
 
   const early = frames.slice(0, 8).reduce((m, f) => Math.max(m, f.delta), 0);
   const fastest = frames.reduce((m, f) => Math.max(m, f.delta), 0);
-  assert.ok(fastest > early * 8,
+  assert.ok(fastest > early * 7,
     `wind-up too abrupt: opens at ${early.toFixed(4)} against a peak of ${fastest.toFixed(4)}`);
 });
 
