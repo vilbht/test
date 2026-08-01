@@ -70,7 +70,7 @@ export function createRider(terrain, x = 60) {
   return {
     x, y,
     px: x, py: y,        // previous position, for render interpolation
-    speed: 150,          // scalar, along the surface tangent
+    speed: 205,          // scalar, along the surface tangent — the drop-in gives real motion at once
     vx: 150, vy: 0,      // only meaningful while airborne
     onGround: true,
     angle: angleAt(terrain, x),

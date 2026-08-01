@@ -21,6 +21,75 @@ export const DRIFT = 0.055;
 export const BASE_Y = 360;
 
 /**
+ * The drop-in: extra descent over the opening stretch.
+ *
+ * Without it the run begins wherever the octaves happen to put it, which on some
+ * seeds is a flat or rising shoulder — the fox spends the first few seconds
+ * pinned at minimum speed, and a momentum game that opens slowly has already
+ * lost the argument. A smoothstep adds height early and flattens out, so the
+ * mountain hands over to its own terrain with no visible join.
+ */
+export const DROP_IN_LENGTH = 900;
+
+/** Floor for the drop-in, and the average opening gradient it must guarantee. */
+export const DROP_IN_DEPTH = 165;
+export const OPENING_SLOPE = 0.17;
+
+/** 3u² − 2u³ on [0,1], clamped outside it. */
+function smoothstep(u) {
+  if (u <= 0) return 0;
+  if (u >= 1) return 1;
+  return u * u * (3 - 2 * u);
+}
+
+function dropIn(terrain, x) {
+  return terrain.dropDepth * smoothstep(x / DROP_IN_LENGTH);
+}
+
+function dropInSlope(terrain, x) {
+  const u = x / DROP_IN_LENGTH;
+  if (u <= 0 || u >= 1) return 0;
+  return (terrain.dropDepth * 6 * u * (1 - u)) / DROP_IN_LENGTH;
+}
+
+function dropInCurvature(terrain, x) {
+  const u = x / DROP_IN_LENGTH;
+  if (u <= 0 || u >= 1) return 0;
+  return (terrain.dropDepth * 6 * (1 - 2 * u)) / (DROP_IN_LENGTH * DROP_IN_LENGTH);
+}
+
+/**
+ * How deep this seed's drop-in has to be.
+ *
+ * A fixed depth is not enough: on some seeds the octaves put a rising shoulder
+ * exactly where the run begins, and a constant ramp merely reduces the climb
+ * instead of removing it. So the opening gradient is *solved for* — measure what
+ * the octaves do over the first stretch, then size the ramp to bring the average
+ * up to OPENING_SLOPE. Every seed then starts on a real descent by construction.
+ */
+function solveDropDepth(octaves, drift) {
+  const x0 = 60;
+  const x1 = DROP_IN_LENGTH * 0.75;
+  let octaveMean = 0;
+  let shapeMean = 0;
+  let n = 0;
+
+  for (let x = x0; x <= x1; x += 10) {
+    let s = 0;
+    for (const o of octaves) s += o.amp * o.freq * Math.cos(x * o.freq + o.phase);
+    octaveMean += s;
+    const u = x / DROP_IN_LENGTH;
+    shapeMean += (6 * u * (1 - u)) / DROP_IN_LENGTH;   // slope per unit depth
+    n++;
+  }
+  octaveMean /= n;
+  shapeMean /= n;
+
+  const needed = (OPENING_SLOPE - drift - octaveMean) / shapeMean;
+  return Math.max(DROP_IN_DEPTH, needed);
+}
+
+/**
  * Octave shapes, coarse to fine.
  *
  * What is being budgeted here is *gradient*, not amplitude — the rider only ever
@@ -47,7 +116,14 @@ export function createTerrain({ seed = 7, length = 12000 } = {}) {
     freq: (Math.PI * 2) / o.wavelength,
     phase: rng() * Math.PI * 2,
   }));
-  return { seed, length, octaves, drift: DRIFT, baseY: BASE_Y, chasms: [], kickers: [] };
+  return {
+    seed, length, octaves,
+    drift: DRIFT,
+    baseY: BASE_Y,
+    dropDepth: solveDropDepth(octaves, DRIFT),
+    chasms: [],
+    kickers: [],
+  };
 }
 
 /**
@@ -58,12 +134,19 @@ export function createTerrain({ seed = 7, length = 12000 } = {}) {
  * breaks the moment a new field like `kickers` is added.
  */
 export function createRamp(slope, { baseY = 200, length = 40000 } = {}) {
-  return { seed: 0, length, octaves: [], drift: slope, baseY, chasms: [], kickers: [] };
+  // baseY is offset by the drop-in so a ramp really is one constant gradient;
+  // tests reason about pure slope and should not inherit the opening descent.
+  // dropDepth 0: a ramp is one constant gradient, and tests reasoning about pure
+  // slope should not inherit the opening descent.
+  return {
+    seed: 0, length, octaves: [], drift: slope, baseY,
+    dropDepth: 0, chasms: [], kickers: [],
+  };
 }
 
 /** The notional surface at x, ignoring chasms. Always a number. */
 export function surfaceY(terrain, x) {
-  let y = terrain.baseY + x * terrain.drift;
+  let y = terrain.baseY + x * terrain.drift + dropIn(terrain, x);
   for (const o of terrain.octaves) y += o.amp * Math.sin(x * o.freq + o.phase);
   for (const k of terrain.kickers) {
     const d = (x - k.x) / k.w;
@@ -77,7 +160,7 @@ export function surfaceY(terrain, x) {
  * Exact rather than a finite difference — see the note at the top of the file.
  */
 export function slopeAt(terrain, x) {
-  let s = terrain.drift;
+  let s = terrain.drift + dropInSlope(terrain, x);
   for (const o of terrain.octaves) s += o.amp * o.freq * Math.cos(x * o.freq + o.phase);
   for (const k of terrain.kickers) {
     const d = (x - k.x) / k.w;
@@ -142,7 +225,7 @@ export function addLipKickers(terrain, { seed = 5 } = {}) {
  * off a sampled surface is where noise gets amplified into false launches.
  */
 export function curvatureAt(terrain, x) {
-  let k = 0;
+  let k = dropInCurvature(terrain, x);
   for (const o of terrain.octaves) k -= o.amp * o.freq * o.freq * Math.sin(x * o.freq + o.phase);
   for (const g of terrain.kickers) {
     const d = (x - g.x) / g.w;

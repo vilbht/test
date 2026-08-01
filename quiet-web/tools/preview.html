@@ -12,7 +12,7 @@
 </head>
 <body>
 <canvas id="sheet" width="1200" height="760"></canvas>
-<p>Pose sheet — reload to re-simulate. Add ?scale=6 to zoom.</p>
+<p>Riding pose sheet — reload to re-simulate. Add ?scale=6 to zoom.</p>
 
 <script type="module">
 // A contact sheet for iterating on ProceduralFox without playing to the pose you
@@ -27,20 +27,20 @@ const scale = Number(new URLSearchParams(location.search).get('scale')) || 4;
 const ctx = document.getElementById('sheet').getContext('2d');
 
 const POSES = [
-  { label: 'idle',            speed: 0,   vy: 0,    air: false, facing: 1,  land: 0 },
-  { label: 'walk',            speed: 90,  vy: 0,    air: false, facing: 1,  land: 0 },
-  { label: 'run',             speed: 235, vy: 0,    air: false, facing: 1,  land: 0 },
-  { label: 'run (left)',      speed: 235, vy: 0,    air: false, facing: -1, land: 0 },
-  { label: 'rising',          speed: 200, vy: -420, air: true,  facing: 1,  land: 0 },
-  { label: 'apex',            speed: 200, vy: -20,  air: true,  facing: 1,  land: 0 },
-  { label: 'falling',         speed: 200, vy: 520,  air: true,  facing: 1,  land: 0 },
-  { label: 'landing squash',  speed: 120, vy: 0,    air: false, facing: 1,  land: 0.3 },
+  { label: 'cruise',          speed: 180, vy: 0,    air: false, angle: 0.16, land: 0, tumble: 0 },
+  { label: 'steep',           speed: 420, vy: 0,    air: false, angle: 0.44, land: 0, tumble: 0 },
+  { label: 'flat out',        speed: 620, vy: 0,    air: false, angle: 0.08, land: 0, tumble: 0 },
+  { label: 'launch',          speed: 420, vy: -560, air: true,  angle: -0.3, land: 0, tumble: 0 },
+  { label: 'flip ¼',          speed: 420, vy: -180, air: true,  angle: -1.6, land: 0, tumble: 0 },
+  { label: 'flip ½',          speed: 420, vy: 120,  air: true,  angle: -3.1, land: 0, tumble: 0 },
+  { label: 'flip ¾',          speed: 420, vy: 420,  air: true,  angle: -4.7, land: 0, tumble: 0 },
+  { label: 'tumble',          speed: 180, vy: 0,    air: false, angle: 0.3,  land: 0.3, tumble: 1 },
 ];
 
 /** Settle a tail chain under the motion this pose implies. */
 function tailFor(pose) {
   const chain = createChain({ x: 0, y: -20, count: 11, segment: 3.0, taper: 0.05 });
-  chain.spreadTarget = foxTailSpread(pose.speed, pose.air);
+  chain.spreadTarget = foxTailSpread(pose.speed, pose.air, 360);
   chain.spread = chain.spreadTarget;
   // Local space: the sheet draws the fox facing +x and mirrors via ctx.scale, so
   // the tail is always simulated trailing to the left, as the renderer expects.
@@ -83,15 +83,16 @@ POSES.forEach((pose, i) => {
   ctx.scale(scale, scale);
   ProceduralFox.draw(ctx, 0, 0, {
     w: 22, h: 34,
-    facing: pose.facing,
+    facing: 1,
+    angle: pose.angle,
     phase: 1.1,
     airborne: pose.air,
     onGround: !pose.air,
-    blocking: 0,
     tail: tailFor(pose),
-    squash: squashStretch(pose.vy, pose.land, 860),
-    lean: Math.max(-0.5, Math.min(0.5, pose.speed / 235 * 0.34)) * pose.facing,
+    squash: squashStretch(pose.vy, pose.land, 900),
     speed: pose.speed,
+    tumble: pose.tumble,
+    groundY: 0,
   });
   ctx.restore();
 });

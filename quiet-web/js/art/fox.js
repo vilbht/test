@@ -113,10 +113,15 @@ export const GreyboxFox = {
 export const ProceduralFox = {
   name: 'procedural',
 
+  /**
+   * @param s.angle   world rotation: surface tilt while riding, and the whole
+   *                  backflip while airborne
+   * @param s.tumble  0..1, how recently a landing went wrong
+   */
   draw(ctx, x, y, s) {
-    const { facing, squash, lean, airborne, blocking, tail, phase, speed } = s;
+    const { facing, squash, angle, airborne, tail, phase, speed, tumble } = s;
 
-    drawContactShadow(ctx, x, y, airborne);
+    drawContactShadow(ctx, x, y, airborne, s.groundY);
 
     // The tail lives in world space because the verlet solver is anchored to the
     // fox's hips in world coordinates — so it is drawn before, and outside, the
@@ -125,31 +130,46 @@ export const ProceduralFox = {
 
     ctx.save();
     ctx.translate(x, y);
-    ctx.rotate(lean * 0.5);
+
+    // Rotate about the body's centre of mass rather than the paws. Spinning
+    // around the feet makes a backflip look like the fox is being swung on a
+    // rope instead of turning over its own axis.
+    ctx.translate(0, -PIVOT);
+    ctx.rotate(angle);
+    ctx.translate(0, PIVOT);
+
     ctx.scale(squash.sx * facing, squash.sy);
 
-    const gait = airborne ? null : phase;
-    const run = Math.min(1, speed / 235);
-
-    // far legs first, then body, then near legs: cheap depth for free
-    drawLegs(ctx, gait, run, airborne, true);
+    const run = Math.min(1, speed / 480);
+    drawRideLegs(ctx, phase, run, airborne, tumble, true);
     drawBody(ctx);
-    drawLegs(ctx, gait, run, airborne, false);
+    drawRideLegs(ctx, phase, run, airborne, tumble, false);
     drawHead(ctx, airborne, run);
 
     ctx.restore();
-
-    if (blocking > 0) drawShield(ctx, x, y - 18, blocking);
   },
 };
 
-/** A soft ellipse under the fox — the cheapest cue for how high off the ground it is. */
-function drawContactShadow(ctx, x, y, airborne) {
+/** Height of the fox's centre of mass above its paws. */
+const PIVOT = 17;
+
+/**
+ * A soft ellipse on the snow below the fox.
+ *
+ * Drawn at the ground rather than at the paws, so while airborne it stays down
+ * on the surface and shrinks with height — which is the only cue that reads
+ * altitude when the fox is against an empty sky.
+ */
+function drawContactShadow(ctx, x, y, airborne, groundY) {
+  const gy = groundY === undefined ? y : groundY;
+  const height = Math.max(0, gy - y);
+  const fade = Math.max(0, 1 - height / 170);
+
   ctx.save();
-  ctx.globalAlpha = airborne ? 0.16 : 0.32;
+  ctx.globalAlpha = (airborne ? 0.20 : 0.34) * fade;
   ctx.fillStyle = PALETTE.shadow;
   ctx.beginPath();
-  ctx.ellipse(x, y + 1.5, airborne ? 10 : 15, airborne ? 2.5 : 4, 0, 0, Math.PI * 2);
+  ctx.ellipse(x, gy + 1.5, 15 * (0.45 + fade * 0.55), 3.6 * (0.5 + fade * 0.5), 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }
@@ -196,28 +216,36 @@ function drawBody(ctx) {
 // ---------------------------------------------------------------- legs
 
 /**
- * Four legs on a two-beat gait: the diagonal pairs swing together, which is what
- * makes a quadruped read as trotting rather than as a pair of scissors.
+ * A riding stance, not a run cycle.
+ *
+ * The fox is planing across snow, so the legs brace fore and aft and stay there,
+ * absorbing the surface with a small bob rather than cycling. A gait would fight
+ * the whole premise: nothing is pushing off the ground.
  */
-function drawLegs(ctx, phase, run, airborne, far) {
-  const swing = airborne ? 0 : Math.sin(phase) * 0.62 * (0.35 + run * 0.65);
-  const alt = airborne ? 0 : Math.sin(phase + Math.PI) * 0.62 * (0.35 + run * 0.65);
+function drawRideLegs(ctx, phase, run, airborne, tumble, far) {
+  const bob = Math.sin(phase * 0.6) * 0.9 * run;
+  // Kept fairly upright. Splaying the legs wide leaves the paws hanging above
+  // the snow, and a fox on stilts is the first thing the eye picks out.
+  const brace = 0.22 + run * 0.12;
 
-  // Mid-air the legs tuck fore-and-aft rather than freezing mid-stride.
-  const frontA = airborne ? 0.55 : (far ? alt : swing);
-  const backA = airborne ? -0.6 : (far ? swing : alt);
+  // Airborne the legs tuck in; a tumble throws them out of line entirely.
+  const spread = airborne ? 0.55 : 1;
+  const chaos = tumble > 0 ? Math.sin(phase * 5) * 0.5 * tumble : 0;
+
+  const frontA = (brace + 0.34) * spread + chaos;
+  const backA = -(brace + 0.20) * spread - chaos;
+  const offset = far ? 0.1 : 0;
 
   ctx.save();
-  if (far) ctx.globalAlpha = 0.72;
-
-  drawLeg(ctx, 9, -17.5, frontA, far);
-  drawLeg(ctx, -10, -18, backA, far);
-
+  if (far) ctx.globalAlpha = 0.7;
+  drawLeg(ctx, 9, -17.5 + bob, frontA + offset, far);
+  drawLeg(ctx, -10, -18 + bob, backA - offset, far);
   ctx.restore();
 }
 
 function drawLeg(ctx, hx, hy, angle, far) {
-  const len = 15;
+  // Long enough that the paw reaches the surface at the brace angles above.
+  const len = 18;
   const knee = len * 0.55;
   const grad = ctx.createLinearGradient(hx, hy, hx, hy + len);
   grad.addColorStop(0, PALETTE.belly);

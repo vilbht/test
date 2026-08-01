@@ -12,17 +12,18 @@
 <body>
 
 <div id="stage">
-  <canvas id="game" width="960" height="540" aria-label="The Quiet Web — a side-scrolling fox"></canvas>
+  <canvas id="game" width="960" height="540" aria-label="The Quiet Web — a fox riding down a mountain"></canvas>
 
   <div id="hud" aria-hidden="true">
     <div class="hud-row">
-      <div class="pill" id="zone">Sunlit Meadow</div>
-      <div class="pill" id="sparkles">✦ 0</div>
-      <div class="pill" id="beacons">◈ 0 / 9</div>
+      <div class="pill" id="chapter">The Ridge</div>
+      <div class="pill" id="coins">✦ 0</div>
+      <div class="pill" id="flips">⟳ 0</div>
+      <div class="pill" id="distance">0 m</div>
       <div class="pill muted" id="mute" hidden>🔇 muted</div>
     </div>
-    <div class="focus-track" title="Focus — spend it on a shield pulse">
-      <div class="focus-fill" id="focus"></div>
+    <div class="speed-track" title="Speed">
+      <div class="speed-fill" id="speed"></div>
     </div>
   </div>
 
@@ -36,16 +37,26 @@
   <div id="start" class="overlay">
     <div class="panel">
       <h1>The Quiet Web</h1>
-      <p class="sub">A calm run east. Nothing here can kill you.</p>
+      <p class="sub">One button. Ride the mountain down.</p>
       <ul class="keys">
-        <li><kbd>←</kbd><kbd>→</kbd> <span>run</span></li>
-        <li><kbd>Space</kbd> <span>jump — hold for height</span></li>
-        <li><kbd>↓</kbd> <span>drop through a ledge</span></li>
-        <li><kbd>Shift</kbd> <span>shield pulse — scatters trackers</span></li>
+        <li><kbd>Space</kbd> <span>tap to jump</span></li>
+        <li><kbd>hold</kbd> <span>backflip in the air</span></li>
       </ul>
-      <p class="hint">Stand by a beacon to light it. Each one you light adds a voice to the music.</p>
-      <button id="begin" type="button">Begin</button>
-      <p class="tiny"><kbd>M</kbd> mutes · <kbd>`</kbd> shows physics debug</p>
+      <p class="hint">
+        Speed is the slope, not a button — long descents wind you up. Land a flip
+        to shake off trackers, and ride past a campfire to light it.
+      </p>
+      <button id="begin" type="button">Drop in</button>
+      <p class="tiny">Click or tap works too · <kbd>M</kbd> mutes · <kbd>`</kbd> debug</p>
+    </div>
+  </div>
+
+  <div id="finish" class="overlay" hidden>
+    <div class="panel">
+      <h1>The valley floor</h1>
+      <p class="sub">You made it all the way down.</p>
+      <dl id="summary"></dl>
+      <button id="again" type="button">Ride again</button>
     </div>
   </div>
 </div>

@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createTerrain, surfaceY, slopeAt, angleAt, curvatureAt, groundY, inChasm,
-  meanSlope, lowestBetween, RUN_UP, DRIFT,
+  meanSlope, lowestBetween, RUN_UP, DRIFT, DROP_IN_LENGTH, OPENING_SLOPE,
 } from '../core/terrain.mjs';
 import { buildMountain } from '../core/level.mjs';
 
@@ -46,10 +46,14 @@ test('the analytic gradient matches a numeric one', () => {
 test('slopes stay in the gentle range a ride game needs', () => {
   // Budgeting amplitude instead of gradient once produced a 65° mountainside
   // built out of ripples too small to see. This is the guard against that.
+  //
+  // Measured past the drop-in, which is deliberately steeper: it exists to get
+  // the fox moving, and folding it into this range would either mask a genuinely
+  // steep mountain or force the opening to be as gentle as the rest.
   for (const seed of [1, 5, 12, 30]) {
     const t = createTerrain({ seed });
     const angles = [];
-    for (let x = 0; x < 12000; x += 7) angles.push(Math.abs(angleAt(t, x)));
+    for (let x = DROP_IN_LENGTH; x < 12000; x += 7) angles.push(Math.abs(angleAt(t, x)));
     angles.sort((a, b) => a - b);
     const deg = (p) => (angles[Math.floor(p * angles.length)] * 180) / Math.PI;
 
@@ -57,6 +61,20 @@ test('slopes stay in the gentle range a ride game needs', () => {
     assert.ok(deg(0.5) > 4, `seed ${seed}: median slope ${deg(0.5).toFixed(1)}° is too flat to ride`);
     assert.ok(angles[angles.length - 1] * 57.3 < 42,
       `seed ${seed}: peak slope ${(angles[angles.length - 1] * 57.3).toFixed(1)}° is a cliff`);
+  }
+});
+
+test('the run opens on a real descent, whatever the seed', () => {
+  // A momentum game that opens slowly has already lost the argument.
+  for (const seed of [1, 3, 7, 12, 25, 40]) {
+    const t = createTerrain({ seed });
+    const opening = meanSlope(t, 60, DROP_IN_LENGTH * 0.75);
+    assert.ok(opening > OPENING_SLOPE * 0.9,
+      `seed ${seed}: opening averages ${opening.toFixed(3)} — too flat to get moving`);
+    for (let x = 0; x < DROP_IN_LENGTH; x += 9) {
+      assert.ok(Math.abs(angleAt(t, x)) * 57.3 < 48,
+        `seed ${seed}: the drop-in reaches ${(angleAt(t, x) * 57.3).toFixed(0)}° — a cliff, not a ramp`);
+    }
   }
 });
 
