@@ -21,6 +21,7 @@ import {
   drawSparkle, drawBeacon, drawTracker, drawCrumb, drawCrate, drawSeesaw,
   drawVine, drawWindStreaks, drawLeaf, drawPulseRing,
 } from './art/entities.js';
+import { createAudio } from './audio.js';
 
 const VW = 960;
 const VH = 540;
@@ -38,6 +39,7 @@ const el = {
   debug: document.getElementById('debug'),
   start: document.getElementById('start'),
   begin: document.getElementById('begin'),
+  mute: document.getElementById('mute'),
 };
 
 // ---------------------------------------------------------------- input
@@ -58,6 +60,7 @@ const wasPressed = (action) => BINDINGS[action].some((c) => pressed.has(c));
 
 addEventListener('keydown', (e) => {
   if (e.code === 'Backquote') { el.debug.hidden = !el.debug.hidden; return; }
+  if (e.code === 'KeyM') { el.mute.hidden = !audio.toggleMute(); return; }
   if (Object.values(BINDINGS).flat().includes(e.code)) e.preventDefault();
   if (!held.has(e.code)) pressed.add(e.code);
   held.add(e.code);
@@ -97,6 +100,9 @@ let fps = 60;
 // instead of following the fox as it runs on
 const pulseAt = { x: body.x, y: body.y };
 
+const audio = createAudio();
+let audioZone = null;
+
 // ---------------------------------------------------------------- simulation
 
 function collisionRects() {
@@ -135,6 +141,7 @@ function step(dt) {
     if (events.landed) {
       landImpulse = Math.min(0.34, Math.abs(body.vy) / TUNING.maxFall + 0.14);
       cam.shake = Math.min(5, landImpulse * 13);
+      audio.land(landImpulse);
     }
     tryGrab();
   }
@@ -167,6 +174,15 @@ function step(dt) {
   if (ruleEvents.pulsed) {
     pulseAt.x = body.x;
     pulseAt.y = body.y - body.h / 2;
+    audio.pulse();
+  }
+  if (ruleEvents.collected) audio.sparkle();
+  if (ruleEvents.litBeacon) audio.beacon(run.lit - 1);
+
+  const zoneKey = zoneAt(body.x).key;
+  if (zoneKey !== audioZone) {
+    audioZone = zoneKey;
+    audio.setZone(zoneKey);
   }
 
   pressed.clear();
@@ -459,6 +475,7 @@ function frame(now) {
 el.begin.addEventListener('click', () => {
   el.start.hidden = true;
   running = true;
+  audio.start();
   last = 0;
   canvas.focus();
 });

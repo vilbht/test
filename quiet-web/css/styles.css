@@ -72,6 +72,8 @@ html, body {
 
 #sparkles { color: var(--violet); }
 #beacons { color: var(--gold); }
+.muted { opacity: 0.6; }
+.pill[hidden] { display: none; }
 
 .focus-track {
   width: 168px;

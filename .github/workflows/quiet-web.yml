@@ -1,0 +1,77 @@
+name: quiet-web
+
+on:
+  push:
+    paths:
+      - "quiet-web/**"
+      - ".github/workflows/quiet-web.yml"
+  pull_request:
+    paths:
+      - "quiet-web/**"
+      - ".github/workflows/quiet-web.yml"
+
+jobs:
+  core:
+    name: Core unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # No install step: core/ is pure ES modules and node --test runs them
+      # directly, which is why this project has no package.json.
+      - name: Unit tests
+        working-directory: quiet-web
+        run: node --test test/*.test.mjs
+
+  browser:
+    name: Bundle + browser smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build the single-file bundle
+        working-directory: quiet-web
+        run: node tools/bundle.mjs
+
+      - name: Install Playwright
+        run: |
+          npm install -g playwright@1.56.1
+          playwright install --with-deps chromium
+
+      - name: Serve
+        working-directory: quiet-web
+        run: |
+          python3 -m http.server 8000 &
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:8000/index.html >/dev/null && break
+            sleep 0.5
+          done
+
+      # Both the dev page and the shipped bundle: the bundle rewrites every
+      # module into a single scope, so the dev page passing is not evidence
+      # that the file players actually load does.
+      - name: Smoke test (dev page)
+        working-directory: quiet-web
+        env:
+          NODE_PATH: /usr/local/lib/node_modules
+        run: node tools/smoke.mjs http://localhost:8000/index.html
+
+      - name: Smoke test (bundle)
+        working-directory: quiet-web
+        env:
+          NODE_PATH: /usr/local/lib/node_modules
+        run: node tools/smoke.mjs http://localhost:8000/dist/quiet-web.html
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: quiet-web-html
+          path: quiet-web/dist/quiet-web.html
