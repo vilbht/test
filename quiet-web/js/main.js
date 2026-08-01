@@ -13,9 +13,14 @@ import {
   windAt, stepSeesaw, seesawRects, seesawSurfaceY,
   stepCrates, pushCrates, crateRects,
 } from '../core/bodies.mjs';
-import { generateLevel, zoneAt, GROUND_Y } from '../core/level.mjs';
+import { generateLevel, zoneAt } from '../core/level.mjs';
 import { createRun, stepRules, stepTrackers, RULES } from '../core/rules.mjs';
 import { ProceduralFox, GreyboxFox, foxTailForces, foxTailSpread } from './art/fox.js';
+import { drawSky, drawSun, drawParallax, drawGround } from './art/scenery.js';
+import {
+  drawSparkle, drawBeacon, drawTracker, drawCrumb, drawCrate, drawSeesaw,
+  drawVine, drawWindStreaks, drawLeaf, drawPulseRing,
+} from './art/entities.js';
 
 const VW = 960;
 const VH = 540;
@@ -74,6 +79,7 @@ const clock = createClock();
 const tail = createChain({ x: body.x, y: body.y - 20, count: 11, segment: 3.0, taper: 0.05 });
 const lean = createSpring(0);
 const cam = { x: 0, y: 0, shake: 0 };
+let camFocusY = level.start.y;
 
 // ?art=grey falls back to flat boxes, for judging movement without art in the way
 const fox = new URLSearchParams(location.search).get('art') === 'grey'
@@ -86,6 +92,10 @@ let landImpulse = 0;
 let running = false;
 let grabbed = null;      // { vine, index } while swinging
 let fps = 60;
+
+// where the last shield pulse fired, so its ring stays put in the world
+// instead of following the fox as it runs on
+const pulseAt = { x: body.x, y: body.y };
 
 // ---------------------------------------------------------------- simulation
 
@@ -150,8 +160,14 @@ function step(dt) {
   }
 
   stepTail(dt);
+  stepLeaves(dt);
   stepTrackers(level, body, dt, elapsed);
-  stepRules(run, level, body, { pulsePressed: wasPressed('pulse') }, dt);
+
+  const ruleEvents = stepRules(run, level, body, { pulsePressed: wasPressed('pulse') }, dt);
+  if (ruleEvents.pulsed) {
+    pulseAt.x = body.x;
+    pulseAt.y = body.y - body.h / 2;
+  }
 
   pressed.clear();
 }
@@ -236,17 +252,22 @@ function render(alpha) {
   const lead = Math.max(-90, Math.min(140, body.vx * 0.34));
   const targetX = ix - VW * 0.36 + lead;
 
-  // Vertical follow uses a dead zone rather than tracking every hop, which would
-  // make the horizon bob on each stride. The band's lower edge sits just below
-  // standing height, so ordinary running never moves it — but a fall does, and
-  // must: clamping the camera to ground level lets the fox drop out of sight
-  // entirely while the player is still trying to steer it.
-  const top = cam.y + VH * 0.25;
-  const bottom = cam.y + VH * 0.78;
-  let targetY = cam.y;
-  if (iy < top) targetY = iy - VH * 0.25;
-  else if (iy > bottom) targetY = iy - VH * 0.78;
-  targetY = Math.max(-260, Math.min(340, targetY));
+  // Vertical follow tracks the ground the fox is standing on, not the fox
+  // itself, so jumping never bobs the horizon. Mid-air the anchor only moves
+  // once the fox is further than `slack` from it — enough to keep a fall or a
+  // vine swing in frame without reacting to a hop.
+  //
+  // A plain dead zone was tried first and is wrong: it has no restoring force,
+  // so the camera that pans down to follow one fall stays down forever after,
+  // leaving the fox pinned near the top of the screen for the rest of the run.
+  // Anchoring to a value that is itself re-established on every landing is what
+  // makes the camera recover.
+  const slack = 150;
+  if (body.onGround) camFocusY = iy;
+  else if (iy > camFocusY + slack) camFocusY = iy - slack;
+  else if (iy < camFocusY - slack) camFocusY = iy + slack;
+
+  const targetY = Math.max(-300, Math.min(400, camFocusY - VH * 0.74));
 
   cam.x += (targetX - cam.x) * 0.09;
   cam.y += (targetY - cam.y) * 0.08;
@@ -256,13 +277,16 @@ function render(alpha) {
   const shakeY = (Math.random() - 0.5) * cam.shake;
 
   const zone = zoneAt(ix);
-  drawSky(zone);
-  drawParallax(zone);   // screen space, before the camera transform
+
+  // sky, sun and parallax are screen space, before the camera transform
+  drawSky(ctx, zone.key, VW, VH, cam.y);
+  drawSun(ctx, zone.key, VW, VH, cam);
+  drawParallax(ctx, zone.key, cam, VW, VH, elapsed);
 
   ctx.save();
   ctx.translate(-Math.round(cam.x + shakeX), -Math.round(cam.y + shakeY));
 
-  drawWorld();
+  drawWorld(zone.key, ix);
   drawEntities();
 
   stepSpring(lean, Math.max(-0.5, Math.min(0.5, body.vx / TUNING.runSpeed * 0.34)), FIXED_DT, 7);
@@ -285,181 +309,92 @@ function render(alpha) {
   drawHud(zone);
 }
 
-function drawSky(zone) {
-  const g = ctx.createLinearGradient(0, 0, 0, VH);
-  g.addColorStop(0, zone.sky[0]);
-  g.addColorStop(0.62, zone.sky[1]);
-  g.addColorStop(1, zone.sky[2]);
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, VW, VH);
-}
+function drawWorld(zoneKey, ix) {
+  const l = cam.x - 80;
+  const r = cam.x + VW + 80;
+  const inView = (x, pad = 80) => x > l - pad && x < r + pad;
 
-/**
- * Grey-box parallax: enough depth cue to judge camera feel, no scenery art yet.
- *
- * Drawn in screen space, before the camera transform, so a layer's scroll rate
- * is just a fraction of cam.x. Doing it inside world space means adding the
- * camera back on to cancel the translate, which is where the arithmetic goes
- * quietly wrong.
- */
-function drawParallax(zone) {
-  ctx.save();
-  ctx.fillStyle = zone.hill;
-  ctx.globalAlpha = 0.55;
-
-  for (let layer = 0; layer < 2; layer++) {
-    const rate = 0.25 + layer * 0.3;        // 0 = painted on the sky, 1 = ground speed
-    const spacing = 180 + layer * 40;
-    const offset = (cam.x * rate) % spacing;
-    const base = GROUND_Y - cam.y + 40 + layer * 30;
-
-    ctx.beginPath();
-    ctx.moveTo(-spacing, VH + 200);
-    for (let i = -1; i < Math.ceil(VW / spacing) + 2; i++) {
-      const hx = i * spacing - offset;
-      ctx.lineTo(hx, base - 60 - layer * 24 - ((i * 37) % 50));
-      ctx.lineTo(hx + spacing / 2, base - layer * 10);
-    }
-    ctx.lineTo(VW + spacing, VH + 200);
-    ctx.closePath();
-    ctx.fill();
-  }
-  ctx.restore();
-}
-
-function drawWorld() {
-  const l = cam.x - 60;
-  const r = cam.x + VW + 60;
-
-  for (const rect of level.rects) {
-    if (rect.x > r || rect.x + rect.w < l) continue;
-    if (rect.oneWay) {
-      ctx.fillStyle = '#5B4A7A';
-      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-      ctx.fillStyle = 'rgba(255,255,255,0.22)';
-      ctx.fillRect(rect.x, rect.y, rect.w, 2);
-    } else {
-      ctx.fillStyle = '#3A2A57';
-      ctx.fillRect(rect.x, rect.y, rect.w, Math.min(rect.h, VH + 200));
-      ctx.fillStyle = '#584379';
-      ctx.fillRect(rect.x, rect.y, rect.w, 4);
-    }
+  for (const w of level.winds) {
+    if (!inView(w.x + w.w / 2, w.w)) continue;
+    drawWindStreaks(ctx, w, elapsed);
   }
 
-  ctx.save();
-  ctx.globalAlpha = 0.10;
-  ctx.fillStyle = '#9059FF';
-  for (const w of level.winds) ctx.fillRect(w.x, w.y, w.w, w.h);
-  ctx.restore();
+  drawGround(ctx, level.rects, cam, VW, VH);
 
-  for (const v of level.vines) {
-    const p = v.chain.points;
-    if (v.x > r + 60 || v.x < l - 60) continue;
-    ctx.strokeStyle = v.held ? '#B58BFF' : '#6E5A93';
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(p[0].x, p[0].y);
-    for (let i = 1; i < p.length; i++) ctx.lineTo(p[i].x, p[i].y);
-    ctx.stroke();
-    const tip = p[p.length - 1];
-    ctx.fillStyle = '#8B3DFF';
-    ctx.beginPath();
-    ctx.arc(tip.x, tip.y, 5, 0, Math.PI * 2);
-    ctx.fill();
-  }
+  for (const v of level.vines) if (inView(v.x, 60)) drawVine(ctx, v, elapsed);
+  for (const s of level.seesaws) if (inView(s.x, s.len)) drawSeesaw(ctx, s);
+  for (const c of level.crates) if (inView(c.x)) drawCrate(ctx, c);
 
-  for (const s of level.seesaws) {
-    if (s.x > r || s.x < l) continue;
-    ctx.save();
-    ctx.translate(s.x, s.y);
-    ctx.fillStyle = '#7A5C3A';
-    ctx.fillRect(-5, 0, 10, 62);
-    ctx.rotate(s.angle);
-    ctx.fillStyle = '#A9814F';
-    ctx.fillRect(-s.len / 2, -5, s.len, 10);
-    ctx.restore();
-  }
-
-  for (const c of level.crates) {
-    if (c.x > r || c.x < l) continue;
-    ctx.fillStyle = '#8A6A3E';
-    ctx.fillRect(c.x, c.y, c.w, c.h);
-    ctx.strokeStyle = '#C29A5E';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(c.x + 1, c.y + 1, c.w - 2, c.h - 2);
-  }
+  for (const leaf of leaves) drawLeaf(ctx, leaf, zoneKey);
+  void ix;
 }
 
 function drawEntities() {
-  const l = cam.x - 40;
-  const r = cam.x + VW + 40;
+  const l = cam.x - 60;
+  const r = cam.x + VW + 60;
+  const inView = (x) => x > l && x < r;
 
   for (const s of level.sparkles) {
-    if (s.got || s.x > r || s.x < l) continue;
-    const bob = Math.sin(elapsed * 2.2 + s.phase) * 3;
-    drawStar(s.x, s.y + bob, 8, '#8B3DFF');
+    if (s.got || !inView(s.x)) continue;
+    drawSparkle(ctx, s.x, s.y, 8, elapsed, s.phase);
   }
-
-  for (const b of level.beacons) {
-    if (b.x > r || b.x < l) continue;
-    ctx.fillStyle = '#2E1C4C';
-    ctx.fillRect(b.x - 7, b.y - 44, 14, 44);
-    const glow = b.lit ? 1 : b.charge;
-    if (glow > 0) {
-      ctx.save();
-      ctx.globalAlpha = 0.30 + glow * 0.7;
-      ctx.fillStyle = b.lit ? '#FFC93C' : '#8B3DFF';
-      ctx.beginPath();
-      ctx.arc(b.x, b.y - 52, 8 + glow * 5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
-    if (!b.lit && b.charge > 0) {
-      ctx.strokeStyle = '#FFC93C';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.arc(b.x, b.y - 52, 17, -Math.PI / 2, -Math.PI / 2 + b.charge * Math.PI * 2);
-      ctx.stroke();
-    }
+  for (const b of level.beacons) if (inView(b.x)) drawBeacon(ctx, b, elapsed);
+  for (const k of level.trackers) {
+    if (k.dispersed || !inView(k.x)) continue;
+    drawTracker(ctx, k, elapsed);
   }
-
-  for (const t of level.trackers) {
-    if (t.dispersed || t.x > r || t.x < l) continue;
-    ctx.save();
-    ctx.globalAlpha = t.clinging ? 1 : 0.82;
-    ctx.fillStyle = t.clinging ? '#FF5C8A' : '#4B3A6B';
-    ctx.beginPath();
-    ctx.arc(t.x, t.y, 9, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#150A2C';
-    ctx.fillRect(t.x - 4, t.y - 1.5, 8, 3);
-    ctx.restore();
-  }
-
   for (const c of level.crumbs) {
-    if (c.dispersed || c.x > r || c.x < l) continue;
-    ctx.fillStyle = '#7A5230';
-    ctx.beginPath();
-    ctx.arc(c.x, c.y - 5, 5, 0, Math.PI * 2);
-    ctx.fill();
+    if (c.dispersed || !inView(c.x)) continue;
+    drawCrumb(ctx, c);
+  }
+  if (run.pulse > 0) {
+    drawPulseRing(ctx, pulseAt.x, pulseAt.y, run.pulse / 0.38, RULES.pulseRadius);
   }
 }
 
-function drawStar(x, y, r, colour) {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.fillStyle = colour;
-  ctx.beginPath();
-  for (let i = 0; i < 4; i++) {
-    const a = (i * Math.PI) / 2;
-    ctx.quadraticCurveTo(Math.cos(a + 0.79) * r * 0.3, Math.sin(a + 0.79) * r * 0.3,
-      Math.cos(a + 1.57) * r, Math.sin(a + 1.57) * r);
+// ---------------------------------------------------------------- leaves
+
+/**
+ * Leaves advected by the wind fields. They are the only reason a wind zone is
+ * legible before you walk into it, so they are seeded across the whole field
+ * rather than emitted from an edge.
+ */
+const leaves = [];
+
+function seedLeaves() {
+  for (const w of level.winds) {
+    for (let i = 0; i < 16; i++) {
+      leaves.push({
+        x: w.x + Math.random() * w.w,
+        y: w.y + Math.random() * w.h,
+        field: w,
+        r: 2.4 + Math.random() * 2.6,
+        spin: Math.random() * Math.PI,
+        vspin: (Math.random() - 0.5) * 3,
+        alpha: 0.35 + Math.random() * 0.4,
+        gold: Math.random() < 0.35,
+        drift: (Math.random() - 0.5) * 26,
+      });
+    }
   }
-  ctx.closePath();
-  ctx.fill();
-  ctx.restore();
 }
+
+function stepLeaves(dt) {
+  for (const leaf of leaves) {
+    const f = leaf.field;
+    const w = windAt([f], leaf.x, leaf.y, elapsed);
+    leaf.x += (w.x * 0.55 + 12) * dt;
+    leaf.y += (w.y * 0.5 + leaf.drift + Math.sin(elapsed * 1.7 + leaf.spin) * 14) * dt;
+    leaf.spin += leaf.vspin * dt;
+
+    // wrap inside the field, so a zone never empties out
+    if (leaf.x > f.x + f.w) leaf.x = f.x;
+    if (leaf.x < f.x) leaf.x = f.x + f.w;
+    if (leaf.y > f.y + f.h) leaf.y = f.y;
+    if (leaf.y < f.y) leaf.y = f.y + f.h;
+  }
+}
+
 
 // ---------------------------------------------------------------- HUD
 
@@ -528,6 +463,7 @@ el.begin.addEventListener('click', () => {
   canvas.focus();
 });
 
+seedLeaves();
 resize();
 addEventListener('resize', resize);
 requestAnimationFrame(frame);

@@ -46,22 +46,15 @@ export const STEP_UP = 40;
  */
 export const LANDING_RUN = 185;
 
+/**
+ * Zone identity and terrain shape only. Colour lives in js/art/scenery.js —
+ * core/ stays free of anything that is a rendering decision, so the whole
+ * simulation remains testable without a canvas.
+ */
 export const ZONES = Object.freeze([
-  {
-    key: 'meadow', name: 'Sunlit Meadow', start: 0, end: 3000,
-    sky: ['#3B1E5F', '#7B3B8A', '#E8794A'], hill: '#2A1547',
-    band: 44, gapChance: 0.42,
-  },
-  {
-    key: 'canyon', name: 'Server Canyon', start: 3000, end: 6300,
-    sky: ['#241147', '#4A2270', '#B3496B'], hill: '#1E1038',
-    band: 74, gapChance: 0.55,
-  },
-  {
-    key: 'grove', name: 'Data Grove', start: 6300, end: 9700,
-    sky: ['#170B33', '#391C5C', '#7A3070'], hill: '#150A2C',
-    band: 62, gapChance: 0.48,
-  },
+  { key: 'meadow', name: 'Sunlit Meadow', start: 0, end: 3000, band: 44, gapChance: 0.42 },
+  { key: 'canyon', name: 'Server Canyon', start: 3000, end: 6300, band: 74, gapChance: 0.55 },
+  { key: 'grove', name: 'Data Grove', start: 6300, end: 9700, band: 62, gapChance: 0.48 },
 ]);
 
 export const LEVEL_END = ZONES[ZONES.length - 1].end;
