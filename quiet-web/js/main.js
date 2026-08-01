@@ -14,6 +14,7 @@ import {
   stepCrates, pushCrates, crateRects,
 } from '../core/bodies.mjs';
 import { generateLevel, zoneAt } from '../core/level.mjs';
+import { createSpin, triggerSpin, stepSpin, markMix, foxMix, spinDelta } from '../core/spin.mjs';
 import { createRun, stepRules, stepTrackers, RULES } from '../core/rules.mjs';
 import {
   ProceduralFox, GreyboxFox, createSpriteFox, foxTailForces, foxTailSpread,
@@ -23,6 +24,7 @@ import {
   drawSparkle, drawBeacon, drawTracker, drawCrumb, drawCrate, drawSeesaw,
   drawVine, drawWindStreaks, drawLeaf, drawPulseRing,
 } from './art/entities.js';
+import { drawFirefoxMark } from './art/logo.js';
 import { createAudio } from './audio.js';
 
 const VW = 960;
@@ -114,6 +116,9 @@ let fps = 60;
 // instead of following the fox as it runs on
 const pulseAt = { x: body.x, y: body.y };
 
+// The shield-pulse flourish: spin up, become the Firefox mark, unwind back.
+const spin = createSpin();
+
 const audio = createAudio();
 let audioZone = null;
 
@@ -189,7 +194,9 @@ function step(dt) {
     pulseAt.x = body.x;
     pulseAt.y = body.y - body.h / 2;
     audio.pulse();
+    triggerSpin(spin);
   }
+  stepSpin(spin, dt);
   if (ruleEvents.collected) audio.sparkle();
   if (ruleEvents.litBeacon) audio.beacon(run.lit - 1);
 
@@ -322,8 +329,19 @@ function render(alpha) {
   stepSpring(lean, Math.max(-0.5, Math.min(0.5, body.vx / TUNING.runSpeed * 0.34)), FIXED_DT, 7);
   gait += Math.abs(body.vx) * FIXED_DT * 0.09;
 
-  fox.draw(ctx, ix, iy, {
-    w: body.w, h: body.h,
+  drawPlayer(ix, iy);
+
+  ctx.restore();
+  drawHud(zone);
+}
+
+/** Height of the fox's centre of mass above its paws — what a spin turns about. */
+const FOX_PIVOT = 17;
+
+function foxState() {
+  return {
+    w: body.w,
+    h: body.h,
     facing: facingOf(),
     phase: gait,
     airborne: !body.onGround,
@@ -333,10 +351,60 @@ function render(alpha) {
     squash: squashStretch(body.vy, landImpulse, TUNING.maxFall),
     lean: lean.value,
     speed: Math.abs(body.vx),
-  });
+  };
+}
 
-  ctx.restore();
-  drawHud(zone);
+/**
+ * The fox, or — during a shield pulse — the fox spinning into the Firefox mark
+ * and back out again.
+ *
+ * Motion blur is done by redrawing the subject along the arc it swept since the
+ * last frame, fading out behind it. That is cheap, needs no filters, and is
+ * honest: the smear covers exactly the angles actually travelled, so it thickens
+ * as the spin accelerates and vanishes as it settles, with nothing to tune.
+ */
+function drawPlayer(ix, iy) {
+  if (!spin.active) {
+    fox.draw(ctx, ix, iy, foxState());
+    return;
+  }
+
+  const delta = spinDelta(spin);
+  const mark = markMix(spin);
+  const fade = foxMix(spin);
+  const ghosts = Math.min(7, Math.floor(Math.abs(delta) / 0.055));
+
+  // Trailing copies first, brightest last, so the leading edge stays crisp.
+  for (let i = ghosts; i >= 0; i--) {
+    const lag = (i / (ghosts + 1)) * delta * 1.9;
+    const alpha = i === 0 ? 1 : 0.5 * (1 - i / (ghosts + 1));
+    drawSpinFrame(ix, iy, spin.angle - lag, mark, fade, alpha);
+  }
+}
+
+function drawSpinFrame(ix, iy, angle, mark, fade, alpha) {
+  const cx = ix;
+  const cy = iy - FOX_PIVOT;
+
+  if (fade > 0.01) {
+    ctx.save();
+    ctx.globalAlpha = alpha * fade;
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+    ctx.translate(-cx, -cy);
+    // The tail is suppressed mid-spin: it is a physics chain anchored in world
+    // space, so it cannot follow the body round, and the flame it becomes is
+    // already there in the mark.
+    fox.draw(ctx, ix, iy, { ...foxState(), tail: fade > 0.9 ? tail : null, shadow: false });
+    ctx.restore();
+  }
+
+  if (mark > 0.01) {
+    // Grows as it fades in, so the mark arrives rather than appears. Ends up
+    // noticeably bigger than the fox: it is a flourish, and one that has to
+    // survive being seen only through motion blur.
+    drawFirefoxMark(ctx, cx, cy, 18 + mark * 26, angle, alpha * mark);
+  }
 }
 
 function drawWorld(zoneKey, ix) {
@@ -503,4 +571,4 @@ requestAnimationFrame(frame);
 render(0);
 
 // exposed for the smoke test to drive the game without synthetic key events
-globalThis.__quiet = { body, run, level, tail, start: () => el.begin.click() };
+globalThis.__quiet = { body, run, level, tail, spin, start: () => el.begin.click() };

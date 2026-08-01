@@ -112,6 +112,28 @@ check('standing by a beacon lights it', lit);
 check('lighting a beacon shows its fact',
   await page.evaluate(() => !document.getElementById('fact').hidden));
 
+// ---- the shield pulse spins the fox into the Firefox mark and back
+const flourish = await page.evaluate(async () => {
+  const q = window.__quiet;
+  q.run.focus = 1;
+  window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ShiftLeft' }));
+  window.dispatchEvent(new KeyboardEvent('keyup', { code: 'ShiftLeft' }));
+
+  let peak = 0;
+  let spun = false;
+  for (let i = 0; i < 240; i++) {
+    await new Promise((r) => requestAnimationFrame(r));
+    if (q.spin.active) spun = true;
+    peak = Math.max(peak, q.spin.angle);
+    if (spun && !q.spin.active) break;
+  }
+  return { spun, peak, restAngle: q.spin.angle, active: q.spin.active };
+});
+check('the pulse spins the fox', flourish.spun && flourish.peak > 6,
+  `peaked at ${(flourish.peak / (Math.PI * 2)).toFixed(2)} turns`);
+check('and the fox ends upright, not left tilted',
+  !flourish.active && flourish.restAngle === 0);
+
 // ---- frame budget, measured while the game is actually running
 await page.keyboard.down('ArrowRight');
 const fps = await page.evaluate(async () => {

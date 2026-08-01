@@ -25,7 +25,7 @@ disk — it needs a server only because browsers refuse module imports over
 | <kbd>←</kbd> <kbd>→</kbd> | run |
 | <kbd>Space</kbd> | jump — hold for height |
 | <kbd>↓</kbd> | drop through a ledge |
-| <kbd>Shift</kbd> | shield pulse |
+| <kbd>Shift</kbd> | shield pulse — the fox spins into the Firefox mark and back |
 | <kbd>M</kbd> | mute |
 | <kbd>`</kbd> | physics debug overlay |
 
@@ -53,6 +53,7 @@ core/     pure, DOM-free simulation — unit tested, no canvas required
   bodies.mjs    wind fields, see-saw planks, pushable crates
   level.mjs     seeded generation for the three zones
   rules.mjs     focus, tracker cling, beacon charging
+  spin.mjs      timing for the shield-pulse flourish
   facts.mjs     the nine privacy facts
 js/       rendering and glue — main.js is the only file that touches the DOM
 test/     node --test
@@ -90,9 +91,17 @@ the shading, the scenery from an integer hash of world position, and the music
 from a slow random walk over a pentatonic scale. Each beacon you light adds a
 sustained voice, so by the end of a run you have assembled the chord yourself.
 
-Fox rendering sits behind a swappable interface. `ProceduralFox` ships today;
-a `SpriteFox` reading real art would replace it by changing one line of
-`js/main.js`.
+Fox rendering sits behind a swappable interface. `ProceduralFox` ships today,
+`createSpriteFox` takes over the moment a sheet is dropped into `assets/` — see
+`assets/README.md` for the layout, and `tools/spritesheet.html` to generate a
+template.
+
+The shield pulse spins the fox into the Firefox mark and unwinds back out of it.
+The mark is drawn procedurally in the tail's own gradient rather than traced, so
+the flame reads as the same fire the fox is trailing. Motion blur is the subject
+redrawn along the arc it swept since the last frame — no filters, and the smear
+covers exactly the angles actually travelled, so it thickens and thins with the
+spin on its own.
 
 ## Accuracy
 
@@ -104,6 +113,7 @@ something overstated, that is a bug.
 
 ## Credit
 
-The fox is Mozilla's mascot and Firefox is Mozilla's trademark. This is a
+The fox is Mozilla's mascot and Firefox is Mozilla's trademark. The mark drawn
+during the shield pulse is an evocation of it, not a reproduction. This is a
 personal fan project, not affiliated with or endorsed by Mozilla, and is not
 intended for distribution as a product.

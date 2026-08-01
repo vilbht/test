@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Firefox mark preview</title>
+<style>
+  body { margin: 0; background: #2A1547; color: #F7EFEA;
+         font: 13px ui-rounded, system-ui, sans-serif; }
+  canvas { display: block; margin: 0 auto; }
+  p { text-align: center; opacity: 0.55; padding: 12px; margin: 0; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1100" height="320"></canvas>
+<p>The mark at the sizes the spin actually uses, and part-way through its rotation.</p>
+<script type="module">
+// A preview for the one thing in the game that is only ever seen for a third of
+// a second in heavy motion blur — and is therefore impossible to judge in place.
+import { drawFirefoxMark } from '../js/art/logo.js';
+
+const ctx = document.getElementById('c').getContext('2d');
+const sizes = [18, 26, 34, 44, 68];
+let x = 90;
+for (const r of sizes) {
+  drawFirefoxMark(ctx, x, 110, r, 0, 1);
+  ctx.fillStyle = 'rgba(247,239,234,0.5)';
+  ctx.font = '12px ui-monospace, monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(`r=${r}`, x, 190);
+  x += r * 2 + 60;
+}
+
+// a rotation strip, since the mark is always spinning when you see it
+x = 90;
+for (let i = 0; i < 6; i++) {
+  drawFirefoxMark(ctx, x, 260, 30, (i / 6) * Math.PI * 2, 1);
+  x += 130;
+}
+</script>
+</body>
+</html>
