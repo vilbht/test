@@ -349,9 +349,14 @@ function foxState() {
     phase: gait,
     airborne: !body.onGround,
     onGround: body.onGround,
+    vy: body.vy,                       // picks the rise / apex / fall pose
+    land: landImpulse,                 // and the landing crouch
     blocking: run.pulse / 0.38,
     tail,
-    squash: squashStretch(body.vy, landImpulse, TUNING.maxFall),
+    // The landing crouch is a pose now (fox.js), so the uniform squash only has
+    // to add the last bit of give. Feeding it the full impulse as well flattened
+    // the whole fox, legs included, into a dachshund.
+    squash: squashStretch(body.vy, landImpulse * 0.35, TUNING.maxFall),
     lean: lean.value,
     speed: Math.abs(body.vx),
   };

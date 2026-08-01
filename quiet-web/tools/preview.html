@@ -11,7 +11,7 @@
 </style>
 </head>
 <body>
-<canvas id="sheet" width="1200" height="760"></canvas>
+<canvas id="sheet" width="1200" height="1140"></canvas>
 <p>Pose sheet — reload to re-simulate. Add ?scale=6 to zoom.</p>
 
 <script type="module">
@@ -28,13 +28,15 @@ const ctx = document.getElementById('sheet').getContext('2d');
 
 const POSES = [
   { label: 'idle',            speed: 0,   vy: 0,    air: false, facing: 1,  land: 0 },
-  { label: 'walk',            speed: 90,  vy: 0,    air: false, facing: 1,  land: 0 },
+  { label: 'walk',            speed: 110, vy: 0,    air: false, facing: 1,  land: 0 },
   { label: 'run',             speed: 235, vy: 0,    air: false, facing: 1,  land: 0 },
   { label: 'run (left)',      speed: 235, vy: 0,    air: false, facing: -1, land: 0 },
   { label: 'rising',          speed: 200, vy: -420, air: true,  facing: 1,  land: 0 },
   { label: 'apex',            speed: 200, vy: -20,  air: true,  facing: 1,  land: 0 },
   { label: 'falling',         speed: 200, vy: 520,  air: true,  facing: 1,  land: 0 },
   { label: 'landing squash',  speed: 120, vy: 0,    air: false, facing: 1,  land: 0.3 },
+  { label: 'pulse — brace',   speed: 60,  vy: 0,    air: false, facing: 1,  land: 0, block: 1 },
+  { label: 'pulse — release', speed: 60,  vy: 0,    air: false, facing: 1,  land: 0, block: 0.45 },
 ];
 
 /** Settle a tail chain under the motion this pose implies. */
@@ -55,7 +57,7 @@ function tailFor(pose) {
 }
 
 ctx.fillStyle = '#1B0E33';
-ctx.fillRect(0, 0, 1200, 760);
+ctx.fillRect(0, 0, 1200, 1140);
 
 const cols = 4;
 const cellW = 1200 / cols;
@@ -87,9 +89,12 @@ POSES.forEach((pose, i) => {
     phase: 1.1,
     airborne: pose.air,
     onGround: !pose.air,
-    blocking: 0,
+    vy: pose.vy,
+    land: pose.land,
+    blocking: pose.block || 0,
+    shield: false,
     tail: tailFor(pose),
-    squash: squashStretch(pose.vy, pose.land, 860),
+    squash: squashStretch(pose.vy, pose.land * 0.35, 860),
     lean: Math.max(-0.5, Math.min(0.5, pose.speed / 235 * 0.34)) * pose.facing,
     speed: pose.speed,
   });

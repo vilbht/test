@@ -1,15 +1,17 @@
 // The shield-pulse flourish. Only the arithmetic is testable, but the failures
 // worth catching are all arithmetic: a fox left permanently tilted, a spin that
-// never ends, or the fox and the mark both visible at once.
+// never ends, a mark too smeared to recognise — or a rotation that stops dead
+// in the middle, which is what the plateau this replaced actually looked like.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { FIXED_DT } from '../core/physics.mjs';
 import {
-  SPIN, createSpin, triggerSpin, stepSpin, markMix, foxMix, spinDelta, isHolding,
+  SPIN, createSpin, triggerSpin, stepSpin, markMix, foxMix, spinDelta, isReading,
 } from '../core/spin.mjs';
 
 const TAU = Math.PI * 2;
+const DEG = 180 / Math.PI;
 
 /** Run a spin to completion, sampling every step. */
 function record(spin, steps = Math.ceil(SPIN.duration / FIXED_DT) + 20) {
@@ -23,7 +25,7 @@ function record(spin, steps = Math.ceil(SPIN.duration / FIXED_DT) + 20) {
       fox: foxMix(spin),
       delta: spinDelta(spin),
       active: spin.active,
-      holding: isHolding(spin),
+      reading: isReading(spin),
       finished,
     });
   }
@@ -49,50 +51,77 @@ test('a spin always ends, and ends within its stated duration', () => {
   assert.ok(Math.abs(at - SPIN.duration) < 0.05, `finished at ${at.toFixed(2)}s`);
 });
 
-test('the fox and the mark are both left upright', () => {
-  // The whole reason the turn counts are integers. The mark is drawn rotated by
-  // the first, and the fox by the sum: a fractional count would leave the logo
-  // tilted while it is being read, and the fox tilted for good afterwards.
-  assert.equal(Number.isInteger(SPIN.turnsIn), true);
-  assert.equal(Number.isInteger(SPIN.turnsOut), true);
+test('the fox is left exactly upright', () => {
+  // The whole reason the *total* is a whole number. The three contributions to
+  // the rotation are each free to be fractional; their sum is not, or the fox
+  // spends the rest of the run tilted.
+  assert.equal(Number.isInteger(SPIN.totalTurns), true);
+  assert.ok(Math.abs(SPIN.turnsIn + SPIN.driftTurns + SPIN.turnsOut - SPIN.totalTurns) < 1e-12);
 
   const spin = createSpin();
   triggerSpin(spin);
-  const frames = record(spin);
-
-  const held = frames.filter((f) => f.holding);
-  assert.ok(held.length > 0, 'never held');
-  for (const f of held) {
-    const turns = f.angle / TAU;
-    assert.ok(Math.abs(turns - Math.round(turns)) < 1e-9,
-      `mark held at ${turns.toFixed(4)} turns — not upright`);
-  }
-
+  record(spin);
   assert.equal(spin.angle, 0, 'the fox should end exactly where it started');
 });
 
-test('the mark is held completely still, and solid, while it is readable', () => {
-  // The point of the whole effect. A mark that is still turning is a smear, and
-  // a smear cannot be recognised however long it is left on screen.
+test('the rotation never stops while the spin is running', () => {
+  // The requirement that replaced the hold. A plateau reads as a dropped frame;
+  // the mark has to stay in motion the whole way through.
   const spin = createSpin();
   triggerSpin(spin);
-  const held = record(spin).filter((f) => f.holding);
+  const frames = record(spin).filter((f) => f.active);
 
-  assert.ok(held.length > 20, `only ${held.length} steps of hold`);
-  for (const f of held) {
-    // Not exactly zero: the one frame that crosses into the hold still carries
-    // the last sliver of the ease. At the size the mark is drawn, 1e-4 rad moves
-    // its edge by six thousandths of a pixel — "still" in any sense that matters.
-    assert.ok(f.delta < 1e-4,
-      `rotation must be stopped during the hold, saw ${f.delta.toExponential(2)}`);
-    assert.equal(f.mark, 1, 'the mark must be fully opaque throughout the hold');
+  for (const f of frames) {
+    assert.ok(f.delta > 1e-5,
+      `rotation stalled at t=${f.t.toFixed(3)} (${(f.delta * DEG).toFixed(4)}°/step)`);
+  }
+});
+
+test('the mark drifts slowly and evenly while it is solid', () => {
+  // Legibility comes from being slow, not from being still. Fast enough and the
+  // mark is a smear; too fast and the renderer starts stacking motion-blur
+  // ghosts on it, which is the same problem by another route.
+  const spin = createSpin();
+  triggerSpin(spin);
+  const read = record(spin).filter((f) => f.reading);
+
+  assert.ok(read.length * FIXED_DT > 0.35,
+    `only ${(read.length * FIXED_DT).toFixed(2)}s of solid mark`);
+
+  const rates = read.map((f) => f.delta * DEG);
+  const slowest = Math.min(...rates);
+  const fastest = Math.max(...rates);
+  assert.ok(slowest > 0.2, `mark barely moving at ${slowest.toFixed(3)}°/step`);
+  assert.ok(fastest < 3, `mark smearing at ${fastest.toFixed(2)}°/step`);
+  assert.ok(fastest - slowest < 0.05,
+    `drift should be even, saw ${slowest.toFixed(3)}..${fastest.toFixed(3)}°/step`);
+
+  for (const f of read) {
+    assert.equal(f.mark, 1, 'the mark must be fully opaque throughout the read');
     assert.equal(f.fox, 0, 'and the fox fully hidden');
   }
 });
 
-test('the hold lasts long enough to actually read the mark', () => {
-  const seconds = (SPIN.holdEnd - SPIN.holdStart) * SPIN.duration;
-  assert.ok(seconds > 0.35, `only ${seconds.toFixed(2)}s of still mark`);
+test('the mark turns through upright, roughly centred on the read', () => {
+  // The in-ramp lands short of a whole turn on purpose so the drift carries the
+  // mark up through vertical mid-read. Get the compensation wrong and the logo
+  // is presented at its most visible while lying on its side.
+  const spin = createSpin();
+  triggerSpin(spin);
+  const read = record(spin).filter((f) => f.reading);
+
+  const off = read.map((f) => {
+    const turns = f.angle / TAU;
+    return Math.abs(turns - Math.round(turns)) * 360;
+  });
+  assert.ok(Math.min(...off) < 1,
+    `never passes upright — closest is ${Math.min(...off).toFixed(1)}°`);
+  assert.ok(Math.max(...off) < 45,
+    `tilts too far to read: ${Math.max(...off).toFixed(1)}°`);
+
+  // and it should pass upright near the middle, not scrape past at one end
+  const at = off.indexOf(Math.min(...off)) / (read.length - 1);
+  assert.ok(Math.abs(at - 0.5) < 0.12, `passes upright ${(at * 100).toFixed(0)}% through`);
 });
 
 test('rotation only ever goes forwards, and covers every turn', () => {
@@ -106,7 +135,7 @@ test('rotation only ever goes forwards, and covers every turn', () => {
     previous = spin.angle;
     peak = Math.max(peak, spin.angle);
   }
-  const total = (SPIN.turnsIn + SPIN.turnsOut) * TAU;
+  const total = SPIN.totalTurns * TAU;
   assert.ok(peak > total * 0.97, `only reached ${(peak / TAU).toFixed(2)} turns`);
 });
 
@@ -146,19 +175,18 @@ test('it winds up gently rather than snapping into a spin', () => {
     `wind-up too abrupt: opens at ${early.toFixed(4)} against a peak of ${fastest.toFixed(4)}`);
 });
 
-test('the spin brakes to a stop before the hold, and rebuilds after it', () => {
+test('both whips are fast enough to actually blur', () => {
+  // The blur is drawn from the arc swept per frame, so a whip that is merely
+  // brisk produces no ghosts at all and the transition reads as a jump cut.
   const spin = createSpin();
   triggerSpin(spin);
   const frames = record(spin).filter((f) => f.active);
 
-  const before = frames.filter((f) => f.t < SPIN.holdStart);
-  const after = frames.filter((f) => f.t > SPIN.holdEnd);
-  const last = before[before.length - 1];
-  const first = after[0];
-
-  assert.ok(last.delta < 0.02, `still turning at ${last.delta.toFixed(3)} entering the hold`);
-  assert.ok(first.delta < 0.02, `snapped back to ${first.delta.toFixed(3)} leaving the hold`);
-  assert.ok(after.some((f) => f.delta > 0.15), 'should build back up to real speed');
+  const into = frames.filter((f) => f.t < SPIN.rampInEnd);
+  const out = frames.filter((f) => f.t > SPIN.rampOutStart);
+  // 0.055 rad/step is where main.js starts stacking ghosts
+  assert.ok(Math.max(...into.map((f) => f.delta)) > 0.055 * 4, 'the first whip is too slow');
+  assert.ok(Math.max(...out.map((f) => f.delta)) > 0.055 * 4, 'the second whip is too slow');
 });
 
 test('mashing the key does not restart the morph mid-flight', () => {
