@@ -22,6 +22,13 @@ class TouchRouterCore(
             engine.resetToNeutral()
         }
 
+    /**
+     * Screen height / width. The UI sets this whenever the surface is
+     * measured; it makes circular zones hit-test as circles rather than
+     * ellipses (see [distSq]). 1.0 means a square surface.
+     */
+    var aspect: Float = 1f
+
     private data class Assignment(val control: ControlSpec)
 
     private val assignments = mutableMapOf<Int, Assignment>()
@@ -64,13 +71,22 @@ class TouchRouterCore(
             .minByOrNull { distSq(it, x, y) }
     }
 
+    /**
+     * Distance in *width-normalized* space. Pointer coordinates arrive
+     * normalized per-axis (x by width, y by height) but a zone radius is
+     * relative to width only — the same convention the renderer uses when it
+     * draws a circle of `radius * width` pixels. Scaling dy by [aspect]
+     * converts it into the same units, so the hit area is the circle the user
+     * sees. Without this the hit area collapses to an ellipse: on a 2400x1080
+     * landscape screen it would be only 45% as tall as it looks.
+     */
     private fun distSq(c: ControlSpec, x: Float, y: Float): Float {
         val dx = x - c.center.x
-        val dy = y - c.center.y
+        val dy = (y - c.center.y) * aspect
         return dx * dx + dy * dy
     }
 
     /** Offset from zone center normalized so the zone radius is 1. */
     private fun offsetInZone(c: ControlSpec, x: Float, y: Float): Pair<Float, Float> =
-        ((x - c.center.x) / c.radius) to ((y - c.center.y) / c.radius)
+        ((x - c.center.x) / c.radius) to (((y - c.center.y) * aspect) / c.radius)
 }

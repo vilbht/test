@@ -112,4 +112,52 @@ class TouchRouterCoreTest {
         val (r, _) = router(caseLayout())
         assertNull(r.hitTest(caseLayout(), 0.45f, 0.95f))
     }
+
+    /**
+     * On a landscape screen the hit area must be the circle the renderer
+     * draws (radius scaled to width), not an ellipse. Before the aspect
+     * correction a touch 80% of the way up a zone's drawn radius missed
+     * entirely, because y was measured in the shorter dimension's units.
+     */
+    @Test
+    fun hitAreaIsCircularOnLandscapeScreens() {
+        val engine = InputEngine(NullListener())
+        val r = TouchRouterCore(engine)
+        r.layout = freeLayout()
+        r.aspect = 1080f / 2400f
+
+        // btnA sits at (0.8, 0.5) with radius 0.1 of the width. A point 80% of
+        // that radius straight up is inside the drawn circle.
+        val dyInsideCircle = 0.08f / r.aspect        // 0.08 width units, expressed in height units
+        r.pointerDown(0, 0.8f, 0.5f - dyInsideCircle, null, 0)
+        assertTrue("vertical hit inside the drawn circle should register", engine.state.isButtonPressed(1))
+        r.pointerUp(0, 10)
+
+        // And a point beyond the drawn radius must miss.
+        val dyOutside = 0.14f / r.aspect
+        r.pointerDown(1, 0.8f, 0.5f - dyOutside, null, 20)
+        assertFalse("vertical miss outside the circle should not register", engine.state.isButtonPressed(1))
+    }
+
+    /** Stick deflection must be isotropic: equal pixel travel gives equal output. */
+    @Test
+    fun stickDeflectionIsIsotropic() {
+        val engine = InputEngine(NullListener())
+        engine.settings = EngineSettings(deadZone = 0f)
+        val r = TouchRouterCore(engine)
+        r.layout = freeLayout()
+        r.aspect = 1080f / 2400f
+
+        // Stick centre (0.2, 0.5), radius 0.15 of width. Half-radius right...
+        r.pointerDown(0, 0.2f + 0.075f, 0.5f, null, 0)
+        val horizontal = engine.state.leftX
+        r.pointerUp(0, 10)
+
+        // ...and the same physical distance downward.
+        r.pointerDown(1, 0.2f, 0.5f + 0.075f / r.aspect, null, 20)
+        val vertical = engine.state.leftY
+        r.pointerUp(1, 30)
+
+        assertEquals("equal travel should give equal deflection", horizontal, vertical)
+    }
 }
