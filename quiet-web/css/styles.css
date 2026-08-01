@@ -1,0 +1,215 @@
+/* styles.css — shell chrome only. Everything inside the canvas is drawn in JS. */
+
+:root {
+  --ink: #F7EFEA;
+  --dusk-0: #150A2C;
+  --dusk-1: #241147;
+  --orange: #F5793B;
+  --gold: #FFC93C;
+  --magenta: #E8437A;
+  --violet: #8B3DFF;
+  --panel: rgba(20, 10, 40, 0.82);
+  --radius: 14px;
+  font-family: ui-rounded, "Nunito", "Segoe UI", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--dusk-0);
+  color: var(--ink);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+#stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+
+/* The canvas has a fixed virtual resolution and is letterboxed to fit, so the
+   camera maths never has to care about the window size. */
+#game {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: auto;
+  display: block;
+  touch-action: none;
+}
+
+/* ---------------------------------------------------------------- HUD */
+
+#hud {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+  pointer-events: none;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.hud-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.pill {
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  padding: 5px 13px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  backdrop-filter: blur(6px);
+}
+
+#sparkles { color: var(--violet); }
+#beacons { color: var(--gold); }
+
+.focus-track {
+  width: 168px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+.focus-fill {
+  height: 100%;
+  width: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--magenta), var(--orange), var(--gold));
+  transform-origin: left center;
+  transition: transform 90ms linear;
+}
+
+/* ---------------------------------------------------------------- fact card */
+
+.fact {
+  position: absolute;
+  left: 50%;
+  bottom: 34px;
+  transform: translateX(-50%);
+  width: min(560px, calc(100% - 48px));
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-left: 3px solid var(--gold);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  backdrop-filter: blur(10px);
+  animation: rise 340ms cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+
+.fact[hidden] { display: none; }
+.fact h2 { margin: 0 0 5px; font-size: 15px; color: var(--gold); letter-spacing: 0.02em; }
+.fact p { margin: 0; font-size: 14px; line-height: 1.5; opacity: 0.93; }
+
+@keyframes rise {
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* ---------------------------------------------------------------- overlays */
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 50% 45%, rgba(36, 17, 71, 0.72), rgba(10, 5, 20, 0.94));
+  backdrop-filter: blur(3px);
+  z-index: 5;
+}
+
+.overlay[hidden] { display: none; }
+
+.panel {
+  text-align: center;
+  max-width: 460px;
+  padding: 30px 34px;
+}
+
+.panel h1 {
+  margin: 0 0 6px;
+  font-size: 38px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  background: linear-gradient(100deg, var(--gold), var(--orange) 45%, var(--magenta));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.sub { margin: 0 0 20px; opacity: 0.75; font-size: 15px; }
+
+.keys {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.keys li { display: flex; align-items: center; gap: 8px; justify-content: center; }
+.keys span { opacity: 0.72; }
+
+kbd {
+  display: inline-block;
+  min-width: 26px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-bottom-width: 2px;
+  font: 600 12px/1 ui-monospace, monospace;
+}
+
+.hint { margin: 0 0 22px; font-size: 14px; opacity: 0.7; }
+
+button {
+  font: 700 16px/1 inherit;
+  color: #2A1020;
+  background: linear-gradient(100deg, var(--gold), var(--orange));
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 38px;
+  cursor: pointer;
+  transition: transform 130ms ease, filter 130ms ease;
+}
+
+button:hover { transform: translateY(-1px); filter: brightness(1.06); }
+button:active { transform: translateY(0); }
+button:focus-visible { outline: 2px solid var(--violet); outline-offset: 3px; }
+
+.tiny { margin: 18px 0 0; font-size: 12px; opacity: 0.45; }
+
+/* ---------------------------------------------------------------- debug */
+
+#debug {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  padding: 10px 13px;
+  background: rgba(8, 4, 16, 0.84);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  font: 12px/1.6 ui-monospace, SFMono-Regular, monospace;
+  white-space: pre;
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+#debug[hidden] { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fact { animation: none; }
+  button { transition: none; }
+}

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Quiet Web</title>
+<!-- Inline so the page makes no request the CSP-locked artifact build cannot,
+     and so the smoke test's "zero console errors" assertion stays honest. -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🦊</text></svg>">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<div id="stage">
+  <canvas id="game" width="960" height="540" aria-label="The Quiet Web — a side-scrolling fox"></canvas>
+
+  <div id="hud" aria-hidden="true">
+    <div class="hud-row">
+      <div class="pill" id="zone">Sunlit Meadow</div>
+      <div class="pill" id="sparkles">✦ 0</div>
+      <div class="pill" id="beacons">◈ 0 / 9</div>
+    </div>
+    <div class="focus-track" title="Focus — spend it on a shield pulse">
+      <div class="focus-fill" id="focus"></div>
+    </div>
+  </div>
+
+  <div id="fact" class="fact" hidden>
+    <h2 id="fact-title"></h2>
+    <p id="fact-body"></p>
+  </div>
+
+  <div id="debug" hidden></div>
+
+  <div id="start" class="overlay">
+    <div class="panel">
+      <h1>The Quiet Web</h1>
+      <p class="sub">A calm run east. Nothing here can kill you.</p>
+      <ul class="keys">
+        <li><kbd>←</kbd><kbd>→</kbd> <span>run</span></li>
+        <li><kbd>Space</kbd> <span>jump — hold for height</span></li>
+        <li><kbd>↓</kbd> <span>drop through a ledge</span></li>
+        <li><kbd>Shift</kbd> <span>shield pulse — scatters trackers</span></li>
+      </ul>
+      <p class="hint">Stand by a beacon to light it.</p>
+      <button id="begin" type="button">Begin</button>
+      <p class="tiny">Grey-box build — physics first, art second. Press <kbd>`</kbd> for debug.</p>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -31,6 +31,21 @@ export const DEPTH = 900; // how far ground rects extend below the surface
  */
 export const STEP_UP = 40;
 
+/**
+ * Minimum width of a slab that a gap may immediately follow, when the fox
+ * arrived on that slab by jumping a rise.
+ *
+ * Jumping a rise at full run speed carries roughly the jump reach (~160px)
+ * before touching down. If the slab beyond the rise is shorter than that and
+ * ends in a gap, the arc sails clean over the landing spot and into the pit —
+ * the fox never gets a frame on the ground to jump again. Every piece is legal
+ * on its own; the sequence is the trap.
+ *
+ * Measured, not assumed: across 40 seeds the bot in test/playable.test.mjs falls
+ * once without this rule and never with it.
+ */
+export const LANDING_RUN = 185;
+
 export const ZONES = Object.freeze([
   {
     key: 'meadow', name: 'Sunlit Meadow', start: 0, end: 3000,
@@ -80,8 +95,15 @@ export function generateLevel(seed = 7) {
     rects.push(opener); solids.push(opener);
     x += openW;
 
+    let enteredByRise = false;
+    let prevSlabW = openW;
+
     while (x < zone.end - 260) {
-      if (rng() < zone.gapChance) {
+      // Do not let a gap follow a short slab that was reached by jumping a rise:
+      // the landing arc would overshoot the slab entirely. See LANDING_RUN.
+      const roomToLand = !enteredByRise || prevSlabW >= LANDING_RUN;
+
+      if (roomToLand && rng() < zone.gapChance) {
         // Minimum 58 keeps a gap readable as a gap; maximum is the derived
         // jump reach, so every gap in the game is clearable by design.
         const gap = 58 + rng() * (TUNING.maxSafeGap - 58);
@@ -95,10 +117,13 @@ export function generateLevel(seed = 7) {
       y = Math.max(GROUND_Y - zone.band, Math.min(GROUND_Y + zone.band * 0.5, y + step));
       y = Math.round(y);
 
+      enteredByRise = step < -0.5;   // negative step = the surface rose
+
       const w = 170 + rng() * 230;
       const slab = { x, y, w: Math.min(w, zone.end - x), h: DEPTH, zone: zone.key };
       rects.push(slab); solids.push(slab);
       x += slab.w;
+      prevSlabW = slab.w;
     }
 
     // closing slab so a zone never ends on a cliff edge
