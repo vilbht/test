@@ -47,6 +47,7 @@ export function stepChain(chain, dt, opts) {
     damping = 0.985,
     iterations = 6,
     wind = null,
+    curl = 0,
     spreadRate = 6,
   } = opts;
 
@@ -59,6 +60,7 @@ export function stepChain(chain, dt, opts) {
   const wx = wind ? wind.x * dt * dt : 0;
   const wy = wind ? wind.y * dt * dt : 0;
 
+  const last = p.length - 1;
   for (let i = 1; i < p.length; i++) {
     const vx = (p[i].x - p[i].px) * damping;
     const vy = (p[i].y - p[i].py) * damping;
@@ -66,6 +68,20 @@ export function stepChain(chain, dt, opts) {
     p[i].py = p[i].y;
     p[i].x += vx + wx;
     p[i].y += vy + gdt + wy;
+
+    // Curl: a push perpendicular to the local segment, ramping up toward the
+    // tip. Uniform forces cannot bend a chain — a pinned chain under gravity and
+    // wind settles into a straight line, whatever the numbers are — so an arc
+    // needs a force that differs along the length. This is the cheapest one that
+    // does, and it is what gives the fox's tail its sweep instead of a poker.
+    if (curl) {
+      const dx = p[i].x - p[i - 1].x;
+      const dy = p[i].y - p[i - 1].y;
+      const d = Math.hypot(dx, dy) || 1e-6;
+      const k = (curl * (i / last) * dt * dt) / d;
+      p[i].x += -dy * k;
+      p[i].y += dx * k;
+    }
   }
 
   // pin the root; its implied velocity is what whips the rest of the chain

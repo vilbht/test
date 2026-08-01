@@ -1,60 +1,69 @@
 // logo.js — the Firefox mark, drawn procedurally.
 //
-// Built from the same vocabulary as the rest of the game rather than traced:
-// a dark globe with a flame spiralling around it, in the tail's own gradient of
-// magenta through orange to gold. That keeps it consistent with the fox it
-// morphs out of — the flame is recognisably the same fire as the tail — and it
-// keeps the whole game asset-free, which the single-file artifact build needs.
+// Three structural facts do the recognising, and everything here serves them:
+// a violet globe filling most of the disc; a body of fire wrapped around it that
+// is heavy at the lower left and thins as it climbs; and distinct tongues
+// breaking past the outline at the crown. Colour runs magenta at the foot,
+// through red and orange up the left, to yellow at the top.
 //
-// It is an evocation of Mozilla's mark, not a reproduction of it. Firefox is
-// Mozilla's trademark; see the note in the README.
+// Two earlier attempts missed by getting the *distribution* wrong rather than
+// the palette. A ring of even thickness reads as a planet with a hoop; a disc
+// with teardrops stuck on the top reads as a disc with horns. The fire has to be
+// a crescent, and the tongues have to grow out of it.
+//
+// Drawn in units of the radius, so the shape is defined once and scales exactly.
+// Nothing is traced from Mozilla's artwork; Firefox is Mozilla's trademark, and
+// the README says what this is.
 
-const FLAME = [
-  { stop: 0, colour: '#FFE566' },
-  { stop: 0.32, colour: '#FFC93C' },
-  { stop: 0.66, colour: '#F5793B' },
-  { stop: 1, colour: '#E8437A' },
+const FLAME_STOPS = [
+  [0, '#E31587'],       // magenta, at the foot
+  [0.24, '#F5406B'],
+  [0.48, '#FF6A2B'],
+  [0.72, '#FFA724'],
+  [0.9, '#FFD426'],
+  [1, '#FFF06A'],       // yellow, at the crown
 ];
 
+function polar(a, r) {
+  return { x: Math.cos(a) * r, y: Math.sin(a) * r };
+}
+
 /**
- * One band of the flame: a crescent that wraps the globe and tapers to a point.
- *
- * Built as a filled region between an outer arc and an inner one, where the
- * inner radius climbs to meet the outer by the end of the sweep — that is what
- * closes the shape into a tip. The first attempt stroked a spiral with a varying
- * line width instead, which produced an even ribbon: recognisably a swirl, but
- * with none of the mass-to-point falloff that makes the Firefox mark read as
- * fire rather than as a ring.
- *
- * @param sweep  radians travelled; more than a full turn is fine and overlaps
- * @param thick  fraction of r between the arcs at the fattest point
+ * A crescent of fire: a band between two arcs whose inner radius rises to meet
+ * the outer, closing the shape to a point at the end of the sweep.
  */
-function flameBand(ctx, r, startAngle, sweep, rOuter, thick) {
-  const steps = 60;
+function crescent(ctx, from, sweep, rOuter, thick) {
+  const steps = 72;
   ctx.beginPath();
 
-  // out along the leading edge
   for (let i = 0; i <= steps; i++) {
-    const u = i / steps;
-    const a = startAngle + sweep * u;
-    const rad = r * (rOuter + u * 0.06);
-    const x = Math.cos(a) * rad;
-    const y = Math.sin(a) * rad;
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    const p = polar(from + sweep * (i / steps), rOuter);
+    if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
   }
-
-  // and back along the trailing edge, closing to a point at the tip
   for (let i = steps; i >= 0; i--) {
     const u = i / steps;
-    const a = startAngle + sweep * u;
-    // Pointed at *both* ends. Starting at full thickness left a blunt stub
-    // sticking out of the swirl — real flame licks come to a point where they
-    // leave the fire as well as where they die out.
-    const width = thick * Math.pow(Math.sin(u * Math.PI), 0.55);
-    const rad = r * (rOuter + u * 0.06 - Math.max(0, width));
-    ctx.lineTo(Math.cos(a) * rad, Math.sin(a) * rad);
+    // fat early, pinched to nothing at both ends
+    const w = thick * Math.pow(Math.sin(u * Math.PI), 0.5);
+    const p = polar(from + sweep * u, rOuter - w);
+    ctx.lineTo(p.x, p.y);
   }
 
+  ctx.closePath();
+  ctx.fill();
+}
+
+/** A tongue breaking past the outline: wide at the base, curling to a point. */
+function tongue(ctx, a, spread, reach, bend, base) {
+  const p0 = polar(a - spread, base);
+  const p1 = polar(a + spread, base);
+  const tip = polar(a + bend, base + reach);
+  const c0 = polar(a - spread * 0.5 + bend * 0.5, base + reach * 0.7);
+  const c1 = polar(a + spread * 0.9 + bend * 0.3, base + reach * 0.45);
+
+  ctx.beginPath();
+  ctx.moveTo(p0.x, p0.y);
+  ctx.quadraticCurveTo(c0.x, c0.y, tip.x, tip.y);
+  ctx.quadraticCurveTo(c1.x, c1.y, p1.x, p1.y);
   ctx.closePath();
   ctx.fill();
 }
@@ -71,43 +80,64 @@ export function drawFirefoxMark(ctx, x, y, r, spin = 0, alpha = 1) {
   ctx.globalAlpha = alpha;
   ctx.translate(x, y);
   ctx.rotate(spin);
+  ctx.scale(r, r);
 
-  // outer glow, so the mark reads as lit rather than pasted on
-  const halo = ctx.createRadialGradient(0, 0, r * 0.4, 0, 0, r * 1.9);
-  halo.addColorStop(0, 'rgba(245, 121, 59, 0.34)');
-  halo.addColorStop(1, 'rgba(245, 121, 59, 0)');
+  // ---- halo, so the mark reads as lit rather than pasted on
+  const halo = ctx.createRadialGradient(0, 0, 0.55, 0, 0, 1.8);
+  halo.addColorStop(0, 'rgba(255, 130, 40, 0.34)');
+  halo.addColorStop(1, 'rgba(255, 130, 40, 0)');
   ctx.fillStyle = halo;
-  ctx.fillRect(-r * 1.9, -r * 1.9, r * 3.8, r * 3.8);
+  ctx.fillRect(-1.85, -1.85, 3.7, 3.7);
 
-  // the globe: deep indigo, lit from the upper left
-  const globe = ctx.createRadialGradient(-r * 0.26, -r * 0.3, r * 0.04, 0, 0, r * 0.7);
-  globe.addColorStop(0, '#7A50C8');
-  globe.addColorStop(0.5, '#3C2478');
-  globe.addColorStop(1, '#170B34');
+  const flame = ctx.createLinearGradient(-0.55, 0.95, 0.5, -1.0);
+  for (const [stop, colour] of FLAME_STOPS) flame.addColorStop(stop, colour);
+
+  // ---- tongues first, so the crescents overlap their bases and they read as
+  // growing out of the fire rather than sitting on top of it
+  ctx.fillStyle = flame;
+  tongue(ctx, -1.62, 0.34, 0.42, 0.20, 0.72);
+  tongue(ctx, -1.02, 0.30, 0.30, 0.22, 0.74);
+  tongue(ctx, -2.18, 0.26, 0.24, 0.12, 0.74);
+
+  // ---- the body of the fire: overlapping crescents, heaviest at the foot,
+  // sweeping up the left and over the crown
+  // The sweep starts at the lower right and runs all the way round to the crown,
+  // so the globe is never left with a bare shoulder breaking the silhouette.
+  ctx.fillStyle = flame;
+  crescent(ctx, 0.85, 5.3, 0.99, 0.50);
+  crescent(ctx, 1.55, 4.3, 0.87, 0.36);
+
+  // ---- the globe, pushed right and down. That offset is what leaves the fire
+  // thick at the lower left and thin at the crown; centred, it reads as a hoop.
+  const globe = ctx.createLinearGradient(-0.36, -0.5, 0.42, 0.5);
+  globe.addColorStop(0, '#B968FF');
+  globe.addColorStop(0.42, '#8B3DFF');
+  globe.addColorStop(1, '#4A28C4');
   ctx.fillStyle = globe;
   ctx.beginPath();
-  ctx.arc(0, 0, r * 0.52, 0, Math.PI * 2);
+  ctx.arc(0.08, 0.03, 0.52, 0, Math.PI * 2);
   ctx.fill();
 
-  // Three crescents nested outward, deepest colour innermost, each starting a
-  // little further round. Layering rather than one shape is what gives the
-  // flame its banding without any outline.
-  const grad = ctx.createLinearGradient(-r, r * 0.6, r * 0.7, -r);
-  for (const s of FLAME) grad.addColorStop(s.stop, s.colour);
-
-  ctx.fillStyle = '#E8437A';
-  flameBand(ctx, r, 2.05, 5.3, 0.70, 0.26);
-
-  ctx.fillStyle = grad;
-  flameBand(ctx, r, 2.35, 5.5, 0.88, 0.34);
-  flameBand(ctx, r, 2.6, 4.9, 1.04, 0.26);
-
-  // a bright inner rim where the flame meets the globe
-  ctx.strokeStyle = 'rgba(255, 214, 120, 0.5)';
-  ctx.lineWidth = r * 0.05;
+  // a cool highlight at the top left of the globe, so it reads as a sphere
+  const sheen = ctx.createRadialGradient(-0.12, -0.24, 0.02, -0.12, -0.24, 0.42);
+  sheen.addColorStop(0, 'rgba(198, 150, 255, 0.55)');
+  sheen.addColorStop(1, 'rgba(198, 150, 255, 0)');
+  ctx.fillStyle = sheen;
   ctx.beginPath();
-  ctx.arc(0, 0, r * 0.545, 0, Math.PI * 2);
-  ctx.stroke();
+  ctx.arc(0.08, 0.03, 0.52, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ---- the fox's snout biting into the fire at the globe's left shoulder.
+  // Small and low contrast on purpose: at the size this is seen it is a
+  // suggestion, and a large wrong shape reads worse than a small right one.
+  ctx.fillStyle = '#FFC155';
+  ctx.beginPath();
+  ctx.moveTo(-0.78, -0.20);
+  ctx.quadraticCurveTo(-0.46, -0.34, -0.20, -0.26);
+  ctx.quadraticCurveTo(-0.40, -0.12, -0.44, 0.00);
+  ctx.quadraticCurveTo(-0.64, -0.04, -0.78, -0.20);
+  ctx.closePath();
+  ctx.fill();
 
   ctx.restore();
 }

@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { FIXED_DT } from '../core/physics.mjs';
 import {
-  SPIN, createSpin, triggerSpin, stepSpin, markMix, foxMix, spinDelta,
+  SPIN, createSpin, triggerSpin, stepSpin, markMix, foxMix, spinDelta, isHolding,
 } from '../core/spin.mjs';
 
 const TAU = Math.PI * 2;
@@ -23,6 +23,7 @@ function record(spin, steps = Math.ceil(SPIN.duration / FIXED_DT) + 20) {
       fox: foxMix(spin),
       delta: spinDelta(spin),
       active: spin.active,
+      holding: isHolding(spin),
       finished,
     });
   }
@@ -48,17 +49,53 @@ test('a spin always ends, and ends within its stated duration', () => {
   assert.ok(Math.abs(at - SPIN.duration) < 0.05, `finished at ${at.toFixed(2)}s`);
 });
 
-test('the fox is left facing exactly the way it started', () => {
-  // The whole reason `turns` is an integer. A fractional count leaves the fox
-  // permanently tilted the moment the spin stops being drawn.
-  assert.equal(Number.isInteger(SPIN.turns), true);
+test('the fox and the mark are both left upright', () => {
+  // The whole reason the turn counts are integers. The mark is drawn rotated by
+  // the first, and the fox by the sum: a fractional count would leave the logo
+  // tilted while it is being read, and the fox tilted for good afterwards.
+  assert.equal(Number.isInteger(SPIN.turnsIn), true);
+  assert.equal(Number.isInteger(SPIN.turnsOut), true);
+
   const spin = createSpin();
   triggerSpin(spin);
-  record(spin);
-  assert.equal(spin.angle, 0);
+  const frames = record(spin);
+
+  const held = frames.filter((f) => f.holding);
+  assert.ok(held.length > 0, 'never held');
+  for (const f of held) {
+    const turns = f.angle / TAU;
+    assert.ok(Math.abs(turns - Math.round(turns)) < 1e-9,
+      `mark held at ${turns.toFixed(4)} turns — not upright`);
+  }
+
+  assert.equal(spin.angle, 0, 'the fox should end exactly where it started');
 });
 
-test('rotation only ever goes forwards, and covers the full turns', () => {
+test('the mark is held completely still, and solid, while it is readable', () => {
+  // The point of the whole effect. A mark that is still turning is a smear, and
+  // a smear cannot be recognised however long it is left on screen.
+  const spin = createSpin();
+  triggerSpin(spin);
+  const held = record(spin).filter((f) => f.holding);
+
+  assert.ok(held.length > 20, `only ${held.length} steps of hold`);
+  for (const f of held) {
+    // Not exactly zero: the one frame that crosses into the hold still carries
+    // the last sliver of the ease. At the size the mark is drawn, 1e-4 rad moves
+    // its edge by six thousandths of a pixel — "still" in any sense that matters.
+    assert.ok(f.delta < 1e-4,
+      `rotation must be stopped during the hold, saw ${f.delta.toExponential(2)}`);
+    assert.equal(f.mark, 1, 'the mark must be fully opaque throughout the hold');
+    assert.equal(f.fox, 0, 'and the fox fully hidden');
+  }
+});
+
+test('the hold lasts long enough to actually read the mark', () => {
+  const seconds = (SPIN.holdEnd - SPIN.holdStart) * SPIN.duration;
+  assert.ok(seconds > 0.35, `only ${seconds.toFixed(2)}s of still mark`);
+});
+
+test('rotation only ever goes forwards, and covers every turn', () => {
   const spin = createSpin();
   triggerSpin(spin);
   let peak = 0;
@@ -69,7 +106,8 @@ test('rotation only ever goes forwards, and covers the full turns', () => {
     previous = spin.angle;
     peak = Math.max(peak, spin.angle);
   }
-  assert.ok(peak > SPIN.turns * TAU * 0.97, `only reached ${(peak / TAU).toFixed(2)} turns`);
+  const total = (SPIN.turnsIn + SPIN.turnsOut) * TAU;
+  assert.ok(peak > total * 0.97, `only reached ${(peak / TAU).toFixed(2)} turns`);
 });
 
 test('the fox and the mark never both show at full strength', () => {
@@ -91,27 +129,36 @@ test('the mark is fully absent at both ends and fully present in the middle', ()
   assert.ok(frames.some((f) => f.mark > 0.99), 'the mark should reach full strength');
 
   // and it must be gone again before the fox is back to full
-  const lastMark = frames.map((f) => f.mark).lastIndexOf(0);
-  assert.ok(frames[lastMark].fox === 1, 'the fox should be whole once the mark clears');
+  const lastClear = frames.map((f) => f.mark).lastIndexOf(0);
+  assert.equal(frames[lastClear].fox, 1, 'the fox should be whole once the mark clears');
 });
 
-test('spin speed peaks in the middle, where the mark is', () => {
-  // The morph is meant to happen at maximum blur — a swap at a standstill reads
-  // as a substitution rather than a transformation.
+test('it winds up gently rather than snapping into a spin', () => {
+  // "Slow at the beginning" is a real requirement, not a nicety: the fox has to
+  // read as gathering itself, or the mark looks like it was cut to.
   const spin = createSpin();
   triggerSpin(spin);
   const frames = record(spin).filter((f) => f.active);
 
-  let fastest = 0;
-  let fastestAt = 0;
-  for (const f of frames) {
-    if (f.delta > fastest) { fastest = f.delta; fastestAt = f.t; }
-  }
-  assert.ok(fastestAt > SPIN.markIn && fastestAt < SPIN.markGone,
-    `peak speed at t=${fastestAt.toFixed(2)}, outside the morph window`);
+  const early = frames.slice(0, 8).reduce((m, f) => Math.max(m, f.delta), 0);
+  const fastest = frames.reduce((m, f) => Math.max(m, f.delta), 0);
+  assert.ok(fastest > early * 8,
+    `wind-up too abrupt: opens at ${early.toFixed(4)} against a peak of ${fastest.toFixed(4)}`);
+});
 
-  const atStart = frames[0].delta;
-  assert.ok(fastest > atStart * 3, 'should accelerate noticeably into the spin');
+test('the spin brakes to a stop before the hold, and rebuilds after it', () => {
+  const spin = createSpin();
+  triggerSpin(spin);
+  const frames = record(spin).filter((f) => f.active);
+
+  const before = frames.filter((f) => f.t < SPIN.holdStart);
+  const after = frames.filter((f) => f.t > SPIN.holdEnd);
+  const last = before[before.length - 1];
+  const first = after[0];
+
+  assert.ok(last.delta < 0.02, `still turning at ${last.delta.toFixed(3)} entering the hold`);
+  assert.ok(first.delta < 0.02, `snapped back to ${first.delta.toFixed(3)} leaving the hold`);
+  assert.ok(after.some((f) => f.delta > 0.15), 'should build back up to real speed');
 });
 
 test('mashing the key does not restart the morph mid-flight', () => {

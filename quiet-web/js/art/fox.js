@@ -15,21 +15,29 @@
 // and rear, pale gold throat and muzzle, dark plum socks, and a tail that runs
 // magenta at the root through orange to a pale gold tip.
 
+/**
+ * Taken off the mascot reference sheet rather than invented.
+ *
+ * The run is orange along the back falling to gold underneath, with the legs —
+ * and only the legs — carrying on down into magenta. An earlier pass had dark
+ * plum socks and a magenta belly, which inverted the whole scheme: the reference
+ * fox is *pale* underneath and hot at the extremities.
+ */
 const PALETTE = {
-  backTop: '#F5793B',
-  backMid: '#F0603F',
-  belly: '#E8437A',
-  gold: '#FFC93C',
-  goldDeep: '#FFB347',
-  sock: '#8B2E52',
-  paw: '#6B1F3F',
-  earInner: '#B33B6B',
-  earTip: '#E8532E',
-  eye: '#331757',
-  nose: '#2B1240',
+  backTop: '#FF8A2B',
+  backMid: '#FA7233',
+  belly: '#FFC93C',
+  gold: '#FFD98A',
+  goldDeep: '#FFC155',
+  sock: '#F0417A',
+  paw: '#D81A5F',
+  earInner: '#C9346B',
+  earTip: '#F5793B',
+  eye: '#2B1A4A',
+  nose: '#2B1A4A',
   tailRoot: '#E8437A',
-  tailMid: '#F5793B',
-  tailTip: '#FFD966',
+  tailMid: '#FF8A22',
+  tailTip: '#FFD84D',
   shadow: 'rgba(20, 8, 40, 0.30)',
 };
 
@@ -50,14 +58,22 @@ export function foxTailForces({ facing, vx, vy, wind = { x: 0, y: 0 } }) {
     gravity: 300,
     damping: 0.982,
     iterations: 6,
+    // Bends the plume up and over, the way the reference mascot carries it when
+    // standing. Signed by facing so it always curls skyward, never into the
+    // ground — and eased off with speed, because the running reference streams
+    // its tail out in a long flat S rather than carrying it curled. Left at full
+    // strength the bend accumulates past a half turn at a sprint and the tail
+    // wraps under the fox.
+    curl: facing * (470 - Math.min(1, Math.abs(vx) / 235) * 300),
     wind: {
       // Enough backward push to trail, not so much that it straightens. Pull the
       // bias much above this and the chain goes taut into a rigid spear; the
       // curve is the whole character of the shape.
-      x: wind.x - facing * 150 - vx * 0.75,
-      // Lift very nearly cancels gravity. Less than this and the tail tip sags
-      // below the paws at idle, clipping through the floor the fox stands on.
-      y: wind.y - 205 - vy * 0.35,
+      x: wind.x - facing * 215 - vx * 0.75,
+      // Lift roughly cancels gravity; the shape comes from `curl` above rather
+      // than from beating gravity, which only ever produced a straight tail
+      // pointing somewhere else.
+      y: wind.y - 300 - vy * 0.35,
     },
   };
 }
@@ -241,38 +257,40 @@ function drawContactShadow(ctx, x, y, airborne) {
 // ---------------------------------------------------------------- body
 
 function drawBody(ctx) {
-  const grad = ctx.createLinearGradient(0, -32, 0, -8);
+  // Orange along the spine falling to gold underneath — the reference fox is
+  // pale on its belly, not dark.
+  const grad = ctx.createLinearGradient(0, -31, 0, -14);
   grad.addColorStop(0, PALETTE.backTop);
-  grad.addColorStop(0.5, PALETTE.backMid);
+  grad.addColorStop(0.55, PALETTE.backMid);
   grad.addColorStop(1, PALETTE.belly);
 
-  // One continuous silhouette: rump, back, neck, chest, belly. Drawn as a single
-  // path so there is never a seam between body parts to give the trick away.
+  // One continuous silhouette from tail root, over the back, up the neck and
+  // back along the belly. Slimmer and deeper-chested than the first pass, which
+  // was built like a terrier next to the reference's long-limbed fox.
   ctx.fillStyle = grad;
   ctx.beginPath();
-  ctx.moveTo(-13, -21);                          // tail root
-  ctx.bezierCurveTo(-13, -29, -6, -31, 1, -30);  // over the back
-  ctx.bezierCurveTo(6, -30, 8, -30, 11, -32);    // shoulder into the neck
-  ctx.bezierCurveTo(14, -34, 15, -30, 14, -26);  // throat
-  ctx.bezierCurveTo(13, -22, 10, -19, 6, -17);   // chest
-  ctx.bezierCurveTo(0, -14.5, -6, -14.5, -10, -16); // belly
-  ctx.bezierCurveTo(-13, -17, -14, -19, -13, -21);  // rump back to the root
+  ctx.moveTo(-13, -20);                              // tail root, high on the rump
+  ctx.bezierCurveTo(-14, -27, -9, -30, -2, -30);     // over the back
+  ctx.bezierCurveTo(4, -30, 7, -29, 9, -31);         // shoulder
+  ctx.bezierCurveTo(12, -33.5, 13.5, -31, 13, -27);  // up into the neck
+  ctx.bezierCurveTo(12.5, -23, 10, -20, 7, -18);     // chest
+  ctx.bezierCurveTo(2, -15.5, -5, -15.5, -9, -16.5); // belly
+  ctx.bezierCurveTo(-12, -17.5, -13, -18, -13, -20); // haunch back to the root
   ctx.closePath();
   ctx.fill();
 
-  // Pale gold throat, the reference's brightest area. Kept narrow and vertical:
-  // a wide wedge sweeping back along the belly reads as a painted chevron rather
-  // than as the underside of a neck.
-  const chest = ctx.createLinearGradient(11, -31, 11, -17);
+  // The pale gold front: throat down over the chest. Narrow and vertical — a
+  // wide wedge sweeping back along the belly reads as a painted chevron.
+  const chest = ctx.createLinearGradient(11, -31, 10, -16);
   chest.addColorStop(0, PALETTE.gold);
-  chest.addColorStop(0.55, PALETTE.goldDeep);
-  chest.addColorStop(1, 'rgba(255, 179, 71, 0)');
+  chest.addColorStop(0.5, PALETTE.goldDeep);
+  chest.addColorStop(1, 'rgba(255, 193, 85, 0)');
   ctx.fillStyle = chest;
   ctx.beginPath();
-  ctx.moveTo(13.4, -30);
-  ctx.bezierCurveTo(15.2, -27.5, 14, -23, 10.5, -19.5);
-  ctx.bezierCurveTo(8.5, -17.6, 6.5, -17, 5.5, -17.2);
-  ctx.bezierCurveTo(8, -21, 10.5, -26, 11.2, -29.6);
+  ctx.moveTo(12.6, -30.5);
+  ctx.bezierCurveTo(14, -27.5, 12.8, -23, 9.4, -19.6);
+  ctx.bezierCurveTo(7.6, -17.8, 5.6, -17.2, 4.6, -17.4);
+  ctx.bezierCurveTo(7, -21, 9.6, -26, 10.4, -30);
   ctx.closePath();
   ctx.fill();
 }
@@ -294,35 +312,35 @@ function drawLegs(ctx, phase, run, airborne, far) {
   ctx.save();
   if (far) ctx.globalAlpha = 0.72;
 
-  drawLeg(ctx, 9, -17.5, frontA, far);
-  drawLeg(ctx, -10, -18, backA, far);
+  drawLeg(ctx, 8, -18.5, frontA, far);
+  drawLeg(ctx, -9.5, -19, backA, far);
 
   ctx.restore();
 }
 
 function drawLeg(ctx, hx, hy, angle, far) {
-  // Long enough that a straight leg puts the paw on the ground rather than a
-  // couple of pixels above it — a gap that is invisible in motion and glaring
-  // the moment the fox stands still or is traced for a sprite sheet.
-  const len = 17.5;
-  const knee = len * 0.55;
+  // Long and fine. The reference fox stands tall on thin legs; the first pass
+  // was a third shorter and read as a corgi.
+  const len = 19;
+  const knee = len * 0.5;
+
+  // Orange at the haunch running down into magenta — the legs are the only part
+  // of the fox that goes hot at the end.
   const grad = ctx.createLinearGradient(hx, hy, hx, hy + len);
-  grad.addColorStop(0, PALETTE.belly);
-  grad.addColorStop(0.45, PALETTE.sock);
+  grad.addColorStop(0, PALETTE.backMid);
+  grad.addColorStop(0.42, PALETTE.sock);
   grad.addColorStop(1, PALETTE.paw);
 
   const kx = hx + Math.sin(angle) * knee;
   const ky = hy + Math.cos(angle) * knee;
   // the lower leg trails the upper slightly — a straight stick reads as a peg
-  const fx = kx + Math.sin(angle * 0.55) * (len - knee);
-  const fy = ky + Math.cos(angle * 0.55) * (len - knee);
+  const fx = kx + Math.sin(angle * 0.5) * (len - knee);
+  const fy = ky + Math.cos(angle * 0.5) * (len - knee);
 
-  // Thin: the reference silhouette is a slim, weasel-like animal, and a leg much
-  // over 3px at this scale turns it into a corgi.
   ctx.strokeStyle = grad;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.lineWidth = far ? 2.8 : 3.4;
+  ctx.lineWidth = far ? 2.6 : 3.2;
   ctx.beginPath();
   ctx.moveTo(hx, hy);
   ctx.quadraticCurveTo(kx, ky, fx, fy);
@@ -330,7 +348,7 @@ function drawLeg(ctx, hx, hy, angle, far) {
 
   ctx.fillStyle = PALETTE.paw;
   ctx.beginPath();
-  ctx.ellipse(fx, fy + 0.4, 2.2, 1.6, 0, 0, Math.PI * 2);
+  ctx.ellipse(fx, fy + 0.3, 2.1, 1.5, 0, 0, Math.PI * 2);
   ctx.fill();
 }
 
@@ -470,7 +488,11 @@ function drawTail(ctx, tail) {
  * a rope. Peaking at the root instead makes it read as a tube.
  */
 function tailWidth(t) {
-  return 15.5 * Math.pow(1 - t, 0.5) * (0.7 + 0.3 * Math.sin(t * Math.PI));
+  // The tail is the mascot: in the reference it carries as much visual mass as
+  // the rest of the animal, so it is deliberately fatter than looks reasonable
+  // in isolation. It is a ratio, though — go wide without also keeping the chain
+  // short and the fox disappears behind its own brush.
+  return 19 * Math.pow(1 - t, 0.45) * (0.66 + 0.34 * Math.sin(t * Math.PI));
 }
 
 /** The reference tail is edged with flame licks rather than fur. */

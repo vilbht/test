@@ -80,10 +80,10 @@ const body = createBody({ x: level.start.x, y: level.start.y });
 const run = createRun();
 const clock = createClock();
 
-// Rest length is short on purpose: the tapered links sum to ~28px at spread 1,
-// reaching ~65px unfurled at a sprint. Longer than that and a 34px-tall fox
-// trails a whip instead of a brush.
-const tail = createChain({ x: body.x, y: body.y - 20, count: 11, segment: 3.0, taper: 0.05 });
+// Short and fat, not long and fat. The reference mascot's tail is about as long
+// as its body but carries as much visual mass, so the links sum to ~29px at rest
+// and near 60px unfurled at a sprint, paired with the wide taper in fox.js.
+const tail = createChain({ x: body.x, y: body.y - 20, count: 11, segment: 3.4, taper: 0.045 });
 const lean = createSpring(0);
 const cam = { x: 0, y: 0, shake: 0 };
 let camFocusY = level.start.y;
@@ -219,7 +219,10 @@ function stepTail(dt) {
 
   const w = windAt(level.winds, body.x, body.y - body.h / 2, elapsed);
   stepChain(tail, dt, {
-    anchorX: body.x - facing * 7,
+    // Anchored at the rump, high and to the rear, matching where the tail root
+    // sits on the body silhouette. Anchoring it nearer the middle buried the
+    // first third of the plume inside the fox.
+    anchorX: body.x - facing * 12,
     anchorY: body.y - 21,
     ...foxTailForces({ facing, vx: body.vx, vy: body.vy, wind: w }),
   });

@@ -39,14 +39,14 @@ const POSES = [
 
 /** Settle a tail chain under the motion this pose implies. */
 function tailFor(pose) {
-  const chain = createChain({ x: 0, y: -20, count: 11, segment: 3.0, taper: 0.05 });
+  const chain = createChain({ x: 0, y: -20, count: 11, segment: 3.4, taper: 0.045 });
   chain.spreadTarget = foxTailSpread(pose.speed, pose.air);
   chain.spread = chain.spreadTarget;
   // Local space: the sheet draws the fox facing +x and mirrors via ctx.scale, so
   // the tail is always simulated trailing to the left, as the renderer expects.
   for (let i = 0; i < 400; i++) {
     stepChain(chain, FIXED_DT, {
-      anchorX: -7,
+      anchorX: -12,
       anchorY: -21,
       ...foxTailForces({ facing: 1, vx: pose.speed, vy: pose.vy }),
     });
