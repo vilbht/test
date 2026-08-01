@@ -19,6 +19,13 @@ export const RULES = Object.freeze({
   beaconChargeRate: 0.85, // per second while stood near
   sparkleRadius: 26,
   fallLimit: GROUND_Y + 360,
+
+  // How long a beacon's fact stays up, and how much of that the fox spends
+  // looking at it. The gaze is much shorter than the card: a fox that stares
+  // upward for nine seconds while running reads as broken, not as reading.
+  factSeconds: 9,
+  gazeSeconds: 2.6,
+  gazeRadius: 190,
 });
 
 export function createRun() {
@@ -31,6 +38,7 @@ export function createRun() {
     clung: 0,
     speedScale: 1,
     fact: null,         // the fact card currently showing
+    factBeacon: null,   // and the beacon it is floating above
     factTimer: 0,
     distance: 0,
     finished: false,
@@ -50,7 +58,7 @@ export function stepRules(run, level, body, input, dt) {
   run.pulse = Math.max(0, run.pulse - dt);
   run.cooldown = Math.max(0, run.cooldown - dt);
   run.factTimer = Math.max(0, run.factTimer - dt);
-  if (run.factTimer === 0) run.fact = null;
+  if (run.factTimer === 0) { run.fact = null; run.factBeacon = null; }
   run.distance = Math.max(run.distance, body.x);
 
   // ---- fall recovery: lifted back to the last solid ground, never punished
@@ -118,13 +126,37 @@ export function stepRules(run, level, body, input, dt) {
       b.lit = true;
       run.lit++;
       run.fact = b.fact;
-      run.factTimer = 9;
+      run.factBeacon = b;
+      run.factTimer = RULES.factSeconds;
       events.litBeacon = b;
     }
   }
 
   if (!run.finished && body.x >= level.width - 160) run.finished = true;
   return events;
+}
+
+/**
+ * How much the fox should be looking up at the fact card, 0..1.
+ *
+ * Pure, and separate from the card's own lifetime on purpose: the card stays up
+ * long enough to read, but the look-up is a beat, not a state. A fox that holds
+ * its head craned upward for the full nine seconds — through a run, a jump and a
+ * landing — reads as broken rather than as interested.
+ *
+ * Falls off with distance too, so running away from a beacon drops the gaze
+ * rather than dragging it along behind you.
+ */
+export function gazeAt(run, body) {
+  if (!run.fact || !run.factBeacon) return 0;
+
+  const elapsed = RULES.factSeconds - run.factTimer;
+  if (elapsed >= RULES.gazeSeconds) return 0;
+
+  const d = Math.hypot(run.factBeacon.x - body.x, run.factBeacon.y - body.y);
+  const inner = RULES.gazeRadius * 0.6;
+  const near = 1 - (d - inner) / (RULES.gazeRadius - inner);
+  return Math.max(0, Math.min(1, near));
 }
 
 /** Trackers drift around their origin until they cling, then follow the fox. */

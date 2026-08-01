@@ -2,7 +2,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRun, stepRules, stepTrackers, RULES } from '../core/rules.mjs';
+import { createRun, stepRules, stepTrackers, gazeAt, RULES } from '../core/rules.mjs';
 import { generateLevel, groundYAt } from '../core/level.mjs';
 import { createBody, FIXED_DT } from '../core/physics.mjs';
 
@@ -134,4 +134,61 @@ test('trackers patrol within range and crumbs stay on the ground', () => {
   for (const c of level.crumbs.slice(0, 20)) {
     assert.ok(c.x >= c.min - 4 && c.x <= c.max + 4, 'crumb left its slab');
   }
+});
+
+// ---- looking up at a fact card
+
+/** Stand on a beacon until it lights, then hand back the run and the fox. */
+function litBeacon(seed = 3) {
+  const { run, level, body } = fixture(seed);
+  const b = level.beacons[0];
+  body.x = b.x;
+  body.y = b.y;
+  for (let i = 0; i < 1200 && !b.lit; i++) stepRules(run, level, body, NO_INPUT, FIXED_DT);
+  assert.equal(b.lit, true, 'the fixture never lit its beacon');
+  return { run, level, body, beacon: b };
+}
+
+test('the fox looks up the moment a fact card appears', () => {
+  const { run, body, beacon } = litBeacon();
+  assert.equal(run.factBeacon, beacon, 'the card must know which beacon raised it');
+  assert.equal(gazeAt(run, body), 1);
+});
+
+test('but the look-up is a beat, not a nine-second stare', () => {
+  // The card outlasts the gaze on purpose: a fox with its head craned upward
+  // through a run, a jump and a landing reads as broken, not as interested.
+  const { run, level, body } = litBeacon();
+
+  const held = [];
+  for (let i = 0; i < Math.ceil(RULES.factSeconds / FIXED_DT); i++) {
+    held.push(gazeAt(run, body));
+    stepRules(run, level, body, NO_INPUT, FIXED_DT);
+  }
+
+  const looking = held.filter((g) => g > 0).length * FIXED_DT;
+  assert.ok(Math.abs(looking - RULES.gazeSeconds) < 0.05,
+    `looked up for ${looking.toFixed(2)}s, expected ${RULES.gazeSeconds}s`);
+  assert.ok(RULES.factSeconds > RULES.gazeSeconds * 2,
+    'the card should stay up well past the glance');
+  assert.equal(held[held.length - 1], 0, 'still staring when the card expired');
+});
+
+test('and it drops off as the fox runs away from the beacon', () => {
+  const { run, body, beacon } = litBeacon();
+
+  assert.equal(gazeAt(run, body), 1, 'should be full while stood at the beacon');
+
+  body.x = beacon.x + RULES.gazeRadius * 0.8;
+  const partial = gazeAt(run, body);
+  assert.ok(partial > 0 && partial < 1, `expected a partial gaze, got ${partial}`);
+
+  body.x = beacon.x + RULES.gazeRadius + 40;
+  assert.equal(gazeAt(run, body), 0, 'should have let go once out of range');
+});
+
+test('no card, no gaze', () => {
+  const { run, body } = fixture();
+  assert.equal(run.fact, null);
+  assert.equal(gazeAt(run, body), 0);
 });

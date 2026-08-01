@@ -314,3 +314,125 @@ export function drawPulseRing(ctx, x, y, t, radius) {
   ctx.fill();
   ctx.restore();
 }
+
+// ---------------------------------------------------------------- fact card
+
+/**
+ * The privacy fact, as a speech bubble floating over the beacon that produced it.
+ *
+ * It used to be a DOM panel pinned to the bottom of the screen, which read as
+ * chrome — a subtitle track running underneath the game rather than something
+ * happening in it. Drawing it in world space, tethered to the lantern by a
+ * pointer, ties the words to the thing that said them, and lets the fox look up
+ * at a specific spot rather than at the bottom of the window.
+ *
+ * Being in world space it also scrolls with the level, so walking away from a
+ * beacon carries its card off the side of the screen, which is the right
+ * behaviour for something a place is telling you.
+ */
+const CARD = Object.freeze({
+  width: 336,
+  padding: 16,
+  radius: 14,
+  titleFont: '700 15px ui-rounded, "Nunito", "Segoe UI", system-ui, sans-serif',
+  bodyFont: '14px ui-rounded, "Nunito", "Segoe UI", system-ui, sans-serif',
+  lineHeight: 20,
+  gap: 7,          // between title and body
+  pointer: 11,     // half-width of the tail that points at the beacon
+  reach: 16,       // how far the pointer drops below the panel
+});
+
+/** Break `text` into lines that fit `maxWidth` at the current font. */
+function wrapText(ctx, text, maxWidth) {
+  const words = text.split(' ');
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(next).width > maxWidth) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = next;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+/**
+ * Measure a card without drawing it.
+ *
+ * Split out because the caller has to know the box before it can decide where to
+ * put it — a card anchored over a beacon near the edge of the level has to be
+ * nudged back into view, and you cannot clamp a box you have not measured.
+ */
+export function layoutFactCard(ctx, fact) {
+  const inner = CARD.width - CARD.padding * 2;
+  ctx.font = CARD.bodyFont;
+  const lines = wrapText(ctx, fact.body, inner);
+  const h = CARD.padding * 2 + 18 + CARD.gap + lines.length * CARD.lineHeight;
+  return { w: CARD.width, h, lines, title: fact.title, reach: CARD.reach };
+}
+
+/**
+ * @param x, y   centre-bottom of the panel
+ * @param appear 0..1 — rises and fades in, so the card arrives rather than blinks
+ * @param pointX where the tail points, in the same space as x. Separate from the
+ *               panel's own centre because a card near the edge of the view gets
+ *               nudged back on screen, and the pointer has to stay on the beacon
+ *               when it does — otherwise the card detaches from what said it.
+ */
+export function drawFactCard(ctx, layout, x, y, appear, pointX = x) {
+  if (appear <= 0.01) return;
+
+  const a = Math.max(0, Math.min(1, appear));
+  const left = x - layout.w / 2;
+  const top = y - layout.h;
+  // kept inside the panel's own width, so the tail never floats free of it
+  const px = Math.max(left + CARD.radius + CARD.pointer,
+    Math.min(left + layout.w - CARD.radius - CARD.pointer, pointX));
+
+  ctx.save();
+  ctx.globalAlpha = a;
+  // rise into place, and settle out of a slight shrink
+  ctx.translate(x, y);
+  ctx.translate(0, (1 - a) * 14);
+  ctx.scale(0.95 + 0.05 * a, 0.95 + 0.05 * a);
+  ctx.translate(-x, -y);
+
+  // panel plus the pointer, as one path so the join is seamless
+  ctx.beginPath();
+  ctx.roundRect(left, top, layout.w, layout.h, CARD.radius);
+  ctx.moveTo(px - CARD.pointer, y - 1);
+  ctx.lineTo(px, y + layout.reach);
+  ctx.lineTo(px + CARD.pointer, y - 1);
+  ctx.closePath();
+
+  ctx.fillStyle = 'rgba(20, 10, 40, 0.92)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // the gold spine, matching the beacon that is speaking
+  ctx.fillStyle = GOLD;
+  ctx.beginPath();
+  ctx.roundRect(left, top + 10, 3, layout.h - 20, 2);
+  ctx.fill();
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = GOLD;
+  ctx.font = CARD.titleFont;
+  ctx.fillText(layout.title, left + CARD.padding, top + CARD.padding + 13);
+
+  ctx.fillStyle = 'rgba(247, 239, 234, 0.93)';
+  ctx.font = CARD.bodyFont;
+  layout.lines.forEach((line, i) => {
+    ctx.fillText(line, left + CARD.padding,
+      top + CARD.padding + 18 + CARD.gap + (i + 1) * CARD.lineHeight - 6);
+  });
+
+  ctx.restore();
+}

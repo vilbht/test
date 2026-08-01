@@ -330,6 +330,9 @@ const BACK_HIP = { x: -9.5, y: -19 };
 /** Where the body pitches about — roughly its centre of mass. */
 const PIVOT = { x: 0, y: -22 };
 
+/** Where the head pivots about — the base of the skull, at the top of the neck. */
+const NECK = { x: 10, y: -29.5 };
+
 /** Below this fraction of the run speed the fox walks rather than runs. */
 export const WALK_RUN_SPLIT = 0.55;
 
@@ -348,16 +351,48 @@ export const WALK_RUN_SPLIT = 0.55;
  */
 export function foxPose(s) {
   const {
-    airborne = false, phase = 0, speed = 0, blocking = 0, vy = 0, land = 0, runSpeed = 235,
+    airborne = false, phase = 0, speed = 0, blocking = 0, vy = 0, land = 0,
+    reading = 0, runSpeed = 235,
   } = s;
   const run = Math.min(1, Math.abs(speed) / runSpeed);
 
+  const pose = basePose({ airborne, phase, speed, blocking, vy, land, run });
+  return reading > 0.01 ? lookUp(pose, reading) : pose;
+}
+
+function basePose({ airborne, phase, blocking, vy, land, run }) {
   if (blocking > 0.05) return bracePose(blocking);
   if (airborne) return airPose(vy, run);
   if (land > 0.02) return landPose(land, run);
   if (run < 0.05) return idlePose(phase);
   if (run < WALK_RUN_SPLIT) return gaitPose(phase, run, WALK);
   return gaitPose(phase, run, RUN);
+}
+
+/**
+ * Craning up at a fact card, blended over whatever the fox is already doing.
+ *
+ * An overlay rather than a pose of its own because reading happens *during*
+ * something — you light a beacon standing still, but the card is still up as you
+ * walk off, and a separate pose would snap the legs back to a stand. Only the
+ * head, ears and eye move; the gait underneath is untouched.
+ *
+ * The muzzle has to rotate, not just rise. Lifting the head by an offset alone
+ * moves a level-headed fox upward, which reads as a startle; the nose has to
+ * come up for it to read as looking at something.
+ */
+function lookUp(pose, k) {
+  return {
+    ...pose,
+    name: `${pose.name}+reading`,
+    head: { x: pose.head.x - 1.4 * k, y: pose.head.y - 3.2 * k },
+    // As far as the neck goes before the throat opens a gap behind the skull:
+    // the head pivots about the top of the neck, so past about a third of a
+    // radian the back of the head swings clear of the chest it sits on.
+    headPitch: (pose.headPitch || 0) - 0.52 * k,
+    ears: pose.ears + (1 - pose.ears) * k,      // pricked, whatever they were
+    eye: pose.eye + 0.22 * k,
+  };
 }
 
 /**
@@ -625,6 +660,12 @@ function drawHead(ctx, pose) {
   // and pushed forward at a run, thrown back and up in the brace.
   ctx.save();
   ctx.translate(pose.head.x, pose.head.y);
+  if (pose.headPitch) {
+    // about the neck joint, so the skull swings and the throat stays put
+    ctx.translate(NECK.x, NECK.y);
+    ctx.rotate(pose.headPitch);
+    ctx.translate(-NECK.x, -NECK.y);
+  }
 
   drawEars(ctx, pose.ears);
 

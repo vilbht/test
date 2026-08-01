@@ -15,14 +15,14 @@ import {
 } from '../core/bodies.mjs';
 import { generateLevel, zoneAt } from '../core/level.mjs';
 import { createSpin, triggerSpin, stepSpin, markMix, foxMix, spinDelta } from '../core/spin.mjs';
-import { createRun, stepRules, stepTrackers, RULES } from '../core/rules.mjs';
+import { createRun, stepRules, stepTrackers, gazeAt, RULES } from '../core/rules.mjs';
 import {
   ProceduralFox, GreyboxFox, createSpriteFox, foxTailForces, foxTailSpread,
 } from './art/fox.js';
 import { drawSky, drawSun, drawParallax, drawGround } from './art/scenery.js';
 import {
   drawSparkle, drawBeacon, drawTracker, drawCrumb, drawCrate, drawSeesaw,
-  drawVine, drawWindStreaks, drawLeaf, drawPulseRing,
+  drawVine, drawWindStreaks, drawLeaf, drawPulseRing, layoutFactCard, drawFactCard,
 } from './art/entities.js';
 import { drawFirefoxMark } from './art/logo.js';
 import { createAudio } from './audio.js';
@@ -37,9 +37,6 @@ const el = {
   sparkles: document.getElementById('sparkles'),
   beacons: document.getElementById('beacons'),
   focus: document.getElementById('focus'),
-  fact: document.getElementById('fact'),
-  factTitle: document.getElementById('fact-title'),
-  factBody: document.getElementById('fact-body'),
   debug: document.getElementById('debug'),
   start: document.getElementById('start'),
   begin: document.getElementById('begin'),
@@ -85,6 +82,10 @@ const clock = createClock();
 // and near 60px unfurled at a sprint, paired with the wide taper in fox.js.
 const tail = createChain({ x: body.x, y: body.y - 20, count: 11, segment: 3.4, taper: 0.045 });
 const lean = createSpring(0);
+// How much the fox has its head craned up at a fact card. Sprung rather than
+// snapped: the whole point is that it looks like the fox turned to read
+// something, and a head that teleports up reads as a glitch.
+const gaze = createSpring(0);
 const cam = { x: 0, y: 0, shake: 0 };
 let camFocusY = level.start.y;
 
@@ -330,9 +331,11 @@ function render(alpha) {
   drawEntities();
 
   stepSpring(lean, Math.max(-0.5, Math.min(0.5, body.vx / TUNING.runSpeed * 0.34)), FIXED_DT, 7);
+  stepSpring(gaze, gazeAt(run, body), FIXED_DT, 3.2);
   gait += Math.abs(body.vx) * FIXED_DT * 0.09;
 
   drawPlayer(ix, iy);
+  drawFact();
 
   ctx.restore();
   drawHud(zone);
@@ -359,6 +362,7 @@ function foxState() {
     squash: squashStretch(body.vy, landImpulse * 0.35, TUNING.maxFall),
     lean: lean.value,
     speed: Math.abs(body.vx),
+    reading: Math.max(0, Math.min(1, gaze.value)),
   };
 }
 
@@ -413,6 +417,44 @@ function drawSpinFrame(ix, iy, angle, mark, fade, alpha) {
     // survive being seen only through motion blur.
     drawFirefoxMark(ctx, cx, cy, 18 + mark * 26, angle, alpha * mark);
   }
+}
+
+/**
+ * The privacy fact, floating over the beacon that produced it.
+ *
+ * Drawn inside the camera transform so it belongs to the world rather than the
+ * window, then clamped back into view — a beacon can sit near enough to the edge
+ * of the screen that a 336px card would hang half off it, and a fact you cannot
+ * finish reading is worse than no fact.
+ */
+function drawFact() {
+  const b = run.factBeacon;
+  if (!run.fact || !b) return;
+
+  const life = RULES.factSeconds;
+  const elapsed = life - run.factTimer;
+  const appear = Math.min(
+    Math.min(1, elapsed / 0.32),          // rises into place
+    Math.min(1, run.factTimer / 0.7),     // and fades on the way out
+  );
+  if (appear <= 0.01) return;
+
+  const layout = layoutFactCard(ctx, run.fact);
+
+  // Just clear of the lantern's top point, so the pointer reads as touching it
+  // rather than disappearing into it — the tail is 16px long, and at any less
+  // clearance it lands inside the gold diamond and cannot be seen at all.
+  const anchorX = b.x;
+  const anchorY = b.y - 86;
+
+  const margin = 16;
+  const left = cam.x + margin;
+  const right = cam.x + VW - margin;
+  const x = Math.max(left + layout.w / 2, Math.min(right - layout.w / 2, anchorX));
+  // clear of the HUD pills along the top
+  const y = Math.max(cam.y + 86 + layout.h, anchorY);
+
+  drawFactCard(ctx, layout, x, y, appear, anchorX);
 }
 
 function drawWorld(zoneKey, ix) {
@@ -504,24 +546,11 @@ function stepLeaves(dt) {
 
 // ---------------------------------------------------------------- HUD
 
-let lastFactShown = null;
-
 function drawHud(zone) {
   el.zone.textContent = zone.name;
   el.sparkles.textContent = `✦ ${run.sparkles}`;
   el.beacons.textContent = `◈ ${run.lit} / ${level.beacons.length}`;
   el.focus.style.transform = `scaleX(${run.focus})`;
-
-  if (run.fact !== lastFactShown) {
-    lastFactShown = run.fact;
-    if (run.fact) {
-      el.factTitle.textContent = run.fact.title;
-      el.factBody.textContent = run.fact.body;
-      el.fact.hidden = false;
-    } else {
-      el.fact.hidden = true;
-    }
-  }
 
   if (!el.debug.hidden) {
     el.debug.textContent = [
@@ -579,4 +608,4 @@ requestAnimationFrame(frame);
 render(0);
 
 // exposed for the smoke test to drive the game without synthetic key events
-globalThis.__quiet = { body, run, level, tail, spin, start: () => el.begin.click() };
+globalThis.__quiet = { body, run, level, tail, spin, gaze, start: () => el.begin.click() };

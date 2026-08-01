@@ -109,8 +109,23 @@ const lit = await page.evaluate(async () => {
   return false;
 });
 check('standing by a beacon lights it', lit);
-check('lighting a beacon shows its fact',
-  await page.evaluate(() => !document.getElementById('fact').hidden));
+// The card is drawn on the canvas above the beacon now, not in the DOM, so the
+// check is on the state that feeds it — plus that the fox is actually looking up
+// at it, which is the whole point of moving it into the world.
+const reading = await page.evaluate(async () => {
+  const q = globalThis.__quiet;
+  // the look-up is sprung, so sample its peak rather than the frame it started on
+  let peak = 0;
+  for (let i = 0; i < 45; i++) {
+    peak = Math.max(peak, q.gaze.value);
+    await new Promise((r) => requestAnimationFrame(r));
+  }
+  return { fact: q.run.fact?.title || null, beacon: !!q.run.factBeacon, gaze: peak };
+});
+check('lighting a beacon raises its fact card', !!reading.fact && reading.beacon,
+  reading.fact || 'no fact');
+check('and the fox looks up to read it', reading.gaze > 0.3,
+  `gaze ${reading.gaze.toFixed(2)}`);
 
 // ---- the shield pulse spins the fox into the Firefox mark and back
 const flourish = await page.evaluate(async () => {
