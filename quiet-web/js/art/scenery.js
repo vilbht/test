@@ -6,6 +6,8 @@
 // camera passes it — which matters, because scenery that reshuffles as you
 // backtrack reads instantly as fake.
 
+import { drawFirefoxMark } from './logo.js';
+
 const PALETTES = {
   meadow: {
     sky: ['#3B1E5F', '#7B3B8A', '#E8794A'],
@@ -65,23 +67,35 @@ export function drawSky(ctx, zoneKey, vw, vh, camY) {
   ctx.fillRect(0, 0, vw, vh);
 }
 
-/** A low sun sitting on the horizon — the single warmest thing on screen. */
+/**
+ * The sun — which is the Firefox mark, hanging low over the horizon.
+ *
+ * It is still doing a sun's job: the single warmest thing on screen, the source
+ * the whole palette is lit by, parallaxing barely at all so it reads as far
+ * away. Only the disc has changed. Drawn before the parallax layers on purpose,
+ * so the hills cut across its foot and it sits *in* the sky rather than on top
+ * of it.
+ *
+ * Held upright and still. The mark has a definite up, and a slowly turning one
+ * would read as a second flourish competing with the shield pulse — which is
+ * the one place in the game the logo is supposed to be the event.
+ */
 export function drawSun(ctx, zoneKey, vw, vh, cam) {
   const p = paletteFor(zoneKey);
   const x = vw * 0.74 - cam.x * 0.02;
   const y = vh * 0.62 - cam.y * 0.12;
 
-  const glow = ctx.createRadialGradient(x, y, 0, x, y, 190);
-  glow.addColorStop(0, 'rgba(255, 201, 60, 0.34)');
-  glow.addColorStop(0.45, 'rgba(232, 121, 74, 0.13)');
+  const glow = ctx.createRadialGradient(x, y, 0, x, y, 210);
+  glow.addColorStop(0, 'rgba(255, 201, 60, 0.30)');
+  glow.addColorStop(0.4, 'rgba(232, 121, 74, 0.14)');
   glow.addColorStop(1, 'rgba(232, 121, 74, 0)');
   ctx.fillStyle = glow;
-  ctx.fillRect(x - 200, y - 200, 400, 400);
+  ctx.fillRect(x - 220, y - 220, 440, 440);
 
-  ctx.fillStyle = zoneKey === 'grove' ? 'rgba(255,201,60,0.28)' : 'rgba(255,214,110,0.62)';
-  ctx.beginPath();
-  ctx.arc(x, y, 27, 0, Math.PI * 2);
-  ctx.fill();
+  // Sat back from full strength: at the saturation the mark is drawn for the
+  // pulse it out-shouts the fox from across the screen, and the sun is scenery.
+  // The grove sits under canopy, so its light is dimmer again.
+  drawFirefoxMark(ctx, x, y, 48, 0, zoneKey === 'grove' ? 0.5 : 0.72);
   void p;
 }
 
