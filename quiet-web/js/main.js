@@ -433,8 +433,8 @@ function drawSpinFrame(ix, iy, angle, mark, fade, alpha) {
  * finish reading is worse than no fact.
  */
 function drawFact() {
-  const b = run.factBeacon;
-  if (!run.fact || !b) return;
+  const at = run.factAt;
+  if (!run.fact || !at) return;
 
   const life = RULES.factSeconds;
   const elapsed = life - run.factTimer;
@@ -446,11 +446,12 @@ function drawFact() {
 
   const layout = layoutFactCard(ctx, run.fact);
 
-  // Just clear of the lantern's top point, so the pointer reads as touching it
-  // rather than disappearing into it — the tail is 16px long, and at any less
-  // clearance it lands inside the gold diamond and cannot be seen at all.
-  const anchorX = b.x;
-  const anchorY = b.y - 86;
+  // Clear of whatever raised the card. A beacon speaks from its lantern's top
+  // point, 86px up; a tracker is already floating, so the card sits just above
+  // it. Either way the 16px pointer must not land inside the thing it points
+  // at, or it cannot be seen at all.
+  const anchorX = at.x;
+  const anchorY = at.y - (run.factTone === 'warn' ? 26 : 86);
 
   const margin = 16;
   const left = cam.x + margin;
@@ -459,7 +460,7 @@ function drawFact() {
   // clear of the HUD pills along the top
   const y = Math.max(cam.y + 86 + layout.h, anchorY);
 
-  drawFactCard(ctx, layout, x, y, appear, anchorX);
+  drawFactCard(ctx, layout, x, y, appear, anchorX, run.factTone);
 }
 
 function drawWorld(zoneKey, ix) {
@@ -629,7 +630,10 @@ function setPaused(next) {
 }
 
 function setMuted(next) {
-  el.mute.textContent = next ? '🔇' : '🔊';
+  // Text, not a speaker emoji: the emoji renders as a different glyph — or as
+  // nothing — depending on the platform's font, and a HUD control that is
+  // sometimes a blank box is worse than a plain word.
+  el.mute.textContent = next ? '♪ off' : '♪ on';
   el.mute.setAttribute('aria-label', next ? 'Unmute' : 'Mute');
   el.mute.setAttribute('aria-pressed', String(next));
 }

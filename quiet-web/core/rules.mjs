@@ -6,6 +6,7 @@
 // rule set can be stepped and asserted without a canvas.
 
 import { groundYAt, safeSpotNear, GROUND_Y } from './level.mjs';
+import { NOTICES } from './facts.mjs';
 
 export const RULES = Object.freeze({
   focusRegen: 0.34,       // per second
@@ -26,6 +27,11 @@ export const RULES = Object.freeze({
   factSeconds: 9,
   gazeSeconds: 2.6,
   gazeRadius: 190,
+
+  // How close the first tracker gets before the game says something about it.
+  // Well outside clingRadius on purpose: a warning that arrives at the same
+  // moment as the thing it is warning about is not a warning.
+  noticeRadius: 165,
 });
 
 export function createRun() {
@@ -37,9 +43,11 @@ export function createRun() {
     lit: 0,
     clung: 0,
     speedScale: 1,
-    fact: null,         // the fact card currently showing
-    factBeacon: null,   // and the beacon it is floating above
+    fact: null,         // the card currently showing — a beacon fact or a notice
+    factAt: null,       // whatever it is floating above: a beacon, or a tracker
+    factTone: 'fact',   // 'fact' | 'warn' — the card's colour
     factTimer: 0,
+    metTracker: false,  // the tracker warning fires once per run
     distance: 0,
     finished: false,
   };
@@ -52,13 +60,20 @@ export function createRun() {
  * @returns events worth reacting to in audio/visuals
  */
 export function stepRules(run, level, body, input, dt) {
-  const events = { collected: 0, litBeacon: null, dispersed: 0, pulsed: false, respawned: false };
+  const events = {
+    collected: 0, litBeacon: null, dispersed: 0, pulsed: false, respawned: false,
+    metTracker: null,
+  };
 
   run.focus = Math.min(1, run.focus + RULES.focusRegen * dt);
   run.pulse = Math.max(0, run.pulse - dt);
   run.cooldown = Math.max(0, run.cooldown - dt);
   run.factTimer = Math.max(0, run.factTimer - dt);
-  if (run.factTimer === 0) { run.fact = null; run.factBeacon = null; }
+  if (run.factTimer === 0 && run.fact) {
+    if (run.factAt) run.factAt.flagged = false;
+    run.fact = null;
+    run.factAt = null;
+  }
   run.distance = Math.max(run.distance, body.x);
 
   // ---- fall recovery: lifted back to the last solid ground, never punished
@@ -90,6 +105,24 @@ export function stepRules(run, level, body, input, dt) {
       if (Math.hypot(c.x - body.x, c.y - body.y) > RULES.pulseRadius) continue;
       c.dispersed = true;
       events.dispersed++;
+    }
+  }
+
+  // ---- the first tracker the fox meets gets called out by name.
+  //
+  // Before the cling loop below, deliberately. A player who barrels straight
+  // into their first tracker crosses the notice radius and the cling radius in
+  // the same step, and running this second meant the tracker was already
+  // clinging by the time we looked — so the one player who most needed the
+  // warning was the only one who never saw it.
+  if (!run.metTracker && !run.fact) {
+    const seen = level.trackers.find((t) => !t.dispersed &&
+      Math.hypot(t.x - body.x, t.y - (body.y - body.h / 2)) < RULES.noticeRadius);
+    if (seen) {
+      run.metTracker = true;
+      raiseCard(run, NOTICES.tracker, seen, 'warn');
+      seen.flagged = true;                 // the renderer rings it while it warns
+      events.metTracker = seen;
     }
   }
 
@@ -125,15 +158,29 @@ export function stepRules(run, level, body, input, dt) {
     if (b.charge >= 1) {
       b.lit = true;
       run.lit++;
-      run.fact = b.fact;
-      run.factBeacon = b;
-      run.factTimer = RULES.factSeconds;
+      raiseCard(run, b.fact, b, 'fact');
       events.litBeacon = b;
     }
   }
 
   if (!run.finished && body.x >= level.width - 160) run.finished = true;
   return events;
+}
+
+/**
+ * Put a card on screen, above `at`.
+ *
+ * `at` is anything with x and y — a beacon standing still, or a tracker that
+ * will drift and may end up clinging to the fox. Live rather than a snapshot on
+ * purpose: the card is pointing at a specific thing, and if that thing moves,
+ * following it is what keeps the warning about *it* rather than about a patch
+ * of empty air where it used to be.
+ */
+function raiseCard(run, card, at, tone) {
+  run.fact = card;
+  run.factAt = at;
+  run.factTone = tone;
+  run.factTimer = RULES.factSeconds;
 }
 
 /**
@@ -148,12 +195,12 @@ export function stepRules(run, level, body, input, dt) {
  * rather than dragging it along behind you.
  */
 export function gazeAt(run, body) {
-  if (!run.fact || !run.factBeacon) return 0;
+  if (!run.fact || !run.factAt) return 0;
 
   const elapsed = RULES.factSeconds - run.factTimer;
   if (elapsed >= RULES.gazeSeconds) return 0;
 
-  const d = Math.hypot(run.factBeacon.x - body.x, run.factBeacon.y - body.y);
+  const d = Math.hypot(run.factAt.x - body.x, run.factAt.y - body.y);
   const inner = RULES.gazeRadius * 0.6;
   const near = 1 - (d - inner) / (RULES.gazeRadius - inner);
   return Math.max(0, Math.min(1, near));

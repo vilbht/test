@@ -47,14 +47,60 @@ export const STEP_UP = 40;
 export const LANDING_RUN = 185;
 
 /**
+ * Ground a one-way ledge must have beneath and beyond it before its host slab
+ * ends.
+ *
+ * Walking off the end of a ledge is a fall, and a fall at run speed travels.
+ * From the top tier — about 240px up — the fox is back on the ground roughly
+ * 100px further east with no chance to jump on the way down. If the slab runs
+ * out inside that distance, the drop lands in whatever follows, and if what
+ * follows is a gap the route is impassable no matter how legal the ledge and
+ * the gap each are on their own.
+ *
+ * Found by the bot in test/playable.test.mjs, which fell twice in forty seeds
+ * the first time the grove was given three tiers of ledges instead of one.
+ */
+export const LEDGE_RUNOUT = 120;
+
+/**
  * Zone identity and terrain shape only. Colour lives in js/art/scenery.js —
  * core/ stays free of anything that is a rendering decision, so the whole
  * simulation remains testable without a canvas.
  */
+/**
+ * Each zone builds its ground by its own rules, not by the same rule with
+ * different numbers. They are meant to be three places, and three places that
+ * only differ in how wobbly the floor is read as one place with three palettes.
+ *
+ *   rolling   the meadow. Wide, gentle, forgiving — the zone that teaches you
+ *             the jump. Long slabs, few gaps, small smooth height changes.
+ *   terraced  the canyon. Machine-made: heights snap to a fixed rack unit and
+ *             the surface climbs in runs of equal steps before dropping away.
+ *             Narrower slabs, more gaps, a deliberate rhythm.
+ *   tiered    the grove. The floor barely moves; the interest is overhead. Wide
+ *             gaps, and stacked one-way ledges to climb through.
+ *
+ * All three still obey the same safety invariants — maxSafeGap, STEP_UP,
+ * LANDING_RUN — because those come from the jump arc, not from the zone.
+ */
 export const ZONES = Object.freeze([
-  { key: 'meadow', name: 'Sunlit Meadow', start: 0, end: 3000, band: 44, gapChance: 0.42 },
-  { key: 'canyon', name: 'Server Canyon', start: 3000, end: 6300, band: 74, gapChance: 0.55 },
-  { key: 'grove', name: 'Data Grove', start: 6300, end: 9700, band: 62, gapChance: 0.48 },
+  {
+    key: 'meadow', name: 'Sunlit Meadow', start: 0, end: 3000,
+    terrain: 'rolling', band: 44, gapChance: 0.30,
+    slab: [230, 420], ledges: [4, 2], ledgeTiers: 1,
+  },
+  {
+    key: 'canyon', name: 'Server Canyon', start: 3000, end: 6300,
+    terrain: 'terraced', band: 78, gapChance: 0.58,
+    slab: [150, 260], ledges: [5, 3], ledgeTiers: 2,
+    rack: 26,          // heights snap to this, so the zone reads as built
+    runLength: 3,      // terraces per staircase before it turns around
+  },
+  {
+    key: 'grove', name: 'Data Grove', start: 6300, end: 9700,
+    terrain: 'tiered', band: 26, gapChance: 0.52,
+    slab: [190, 330], ledges: [8, 4], ledgeTiers: 3,
+  },
 ]);
 
 export const LEVEL_END = ZONES[ZONES.length - 1].end;
@@ -65,12 +111,54 @@ export function zoneAt(x) {
 }
 
 /**
+ * The next surface height for a zone, given where it is now.
+ *
+ * Returns the new y and nothing else; the caller owns the clamping to the
+ * zone's band, because that is the same for every terrain. A rise is a *negative*
+ * step in screen coordinates and is a wall the fox has to jump, so every branch
+ * that can go up is capped at STEP_UP — the direction is easy to get backwards
+ * and it was, once: the cap ended up limiting descents, which need no limit at
+ * all because falling is free.
+ */
+function stepSurface(zone, y, rng, state) {
+  if (zone.terrain === 'terraced') {
+    // Everything in this zone is measured from the height it opened at, so the
+    // grid survives the surface being inherited from the zone before rather
+    // than starting at a round number.
+    if (state.base === undefined) state.base = y;
+
+    // A staircase of equal rack-height steps, then a turn. The equal steps are
+    // the whole point: a random walk quantised to a grid still reads as random,
+    // and what makes this zone feel built is repetition.
+    if (state.left <= 0) {
+      state.left = 1 + Math.floor(rng() * zone.runLength);
+      state.dir = rng() < 0.52 ? -1 : 1;
+      state.units = state.dir < 0
+        ? 1 + Math.floor(rng() * Math.floor(STEP_UP / zone.rack))   // a rise: capped
+        : 1 + Math.floor(rng() * 3);                                // a drop: free
+    }
+    state.left--;
+    return y + state.dir * state.units * zone.rack;
+  }
+
+  if (zone.terrain === 'tiered') {
+    // Nearly level ground — the grove's height is in its canopy of ledges, and
+    // a bumpy floor underneath them makes the stack unreadable.
+    const r = rng() - 0.5;
+    return y + (r < 0 ? r * 2 * (STEP_UP * 0.45) : r * 2 * 30);
+  }
+
+  const r = rng() - 0.5;
+  return y + (r < 0 ? r * 2 * STEP_UP : r * 2 * Math.min(64, zone.band));
+}
+
+/**
  * Build the world.
  *
- * Ground is a run of solid slabs separated by gaps. Surface height wanders within
- * each zone's band. Any upward step is a wall to a platformer character, so rises
- * are capped at STEP_UP — comfortably inside the ~90px jump peak — while drops can
- * be larger, since falling is free.
+ * Ground is a run of solid slabs separated by gaps, laid down by whichever
+ * terrain grammar the zone declares. Any upward step is a wall to a platformer
+ * character, so rises are capped at STEP_UP — comfortably inside the ~90px jump
+ * peak — while drops can be larger, since falling is free.
  */
 export function generateLevel(seed = 7) {
   const rng = mulberry32(seed);
@@ -78,9 +166,14 @@ export function generateLevel(seed = 7) {
   const solids = [];      // just the walkable slabs, for placing things on
   const gaps = [];
 
+  // Carried across zones so each one opens at the height the last one ended.
+  // Resetting to GROUND_Y at every boundary put a step of up to the previous
+  // zone's whole band at the seam — twice STEP_UP in the canyon's case, a wall
+  // the generator would never have allowed anywhere else.
+  let y = GROUND_Y;
+
   for (const zone of ZONES) {
     let x = zone.start;
-    let y = GROUND_Y;
 
     // every zone opens with a wide, flat, safe slab to land in
     const openW = 300;
@@ -90,6 +183,7 @@ export function generateLevel(seed = 7) {
 
     let enteredByRise = false;
     let prevSlabW = openW;
+    const surface = { left: 0, dir: 1, units: 1 };   // terraced staircase state
 
     while (x < zone.end - 260) {
       // Do not let a gap follow a short slab that was reached by jumping a rise:
@@ -103,38 +197,71 @@ export function generateLevel(seed = 7) {
         gaps.push({ x, w: gap, zone: zone.key });
         x += gap;
       }
-      // Step the surface up or down within the zone's band. y grows downward, so
-      // a negative step is a rise — that is the direction STEP_UP has to cap.
-      const r = rng() - 0.5;
-      const step = r < 0 ? r * 2 * STEP_UP : r * 2 * Math.min(64, zone.band);
-      y = Math.max(GROUND_Y - zone.band, Math.min(GROUND_Y + zone.band * 0.5, y + step));
+      const before = y;
+      y = stepSurface(zone, y, rng, surface);
+      y = Math.max(GROUND_Y - zone.band, Math.min(GROUND_Y + zone.band * 0.5, y));
+      // Re-snap after the clamp, not before: clamping to the band is what
+      // knocks a terrace off its grid, and a rack that is right until the zone
+      // reaches its ceiling is not a rack.
+      if (zone.terrain === 'terraced') {
+        y = surface.base + Math.round((y - surface.base) / zone.rack) * zone.rack;
+      }
       y = Math.round(y);
 
-      enteredByRise = step < -0.5;   // negative step = the surface rose
+      enteredByRise = y < before - 0.5;   // y grows downward, so this is a rise
 
-      const w = 170 + rng() * 230;
+      const w = zone.slab[0] + rng() * (zone.slab[1] - zone.slab[0]);
       const slab = { x, y, w: Math.min(w, zone.end - x), h: DEPTH, zone: zone.key };
       rects.push(slab); solids.push(slab);
       x += slab.w;
       prevSlabW = slab.w;
     }
 
-    // closing slab so a zone never ends on a cliff edge
-    const closer = { x, y, w: Math.max(120, zone.end - x), h: DEPTH, zone: zone.key };
-    rects.push(closer); solids.push(closer);
+    // Closing slab, so a zone never ends on a cliff edge — but never wider than
+    // the zone has left. The old Math.max(120, ...) floor overran the boundary
+    // and left two ground rects overlapping at different heights across the
+    // seam, which is a legal thing for a world to contain and was not a legal
+    // thing for the collision solver to be handed.
+    const tail = zone.end - x;
+    if (tail > 0) {
+      const closer = { x, y, w: tail, h: DEPTH, zone: zone.key };
+      rects.push(closer); solids.push(closer);
+    }
   }
 
-  // ---- floating one-way ledges, for optional height
+  // ---- floating one-way ledges.
+  //
+  // The meadow gets a handful at one height, as optional detours. The grove
+  // gets three tiers of them, stacked so each is a jump above the last — that
+  // stack is the zone's whole identity, and it is why its floor is kept flat.
   const ledges = [];
   for (const zone of ZONES) {
-    const n = 5 + Math.floor(rng() * 3);
+    const [base, spread] = zone.ledges;
+    const n = base + Math.floor(rng() * (spread + 1));
     for (let i = 0; i < n; i++) {
       const host = pickSolid(solids, zone.key, rng);
       if (!host || host.w < 150) continue;
-      const lx = host.x + 30 + rng() * (host.w - 120);
-      const ly = host.y - (86 + rng() * 54);
-      const ledge = { x: lx, y: ly, w: 78 + rng() * 62, h: 12, oneWay: true, zone: zone.key };
-      rects.push(ledge); ledges.push(ledge);
+
+      // Every tier of this stack has to live inside the window where stepping
+      // off it lands back on the host slab with room to spare. See LEDGE_RUNOUT.
+      const lo = host.x + 24;
+      const hi = host.x + host.w - LEDGE_RUNOUT;
+      const maxW = Math.min(140, hi - lo);
+      if (maxW < 70) continue;                 // no room on this slab
+
+      // Tiers are 78px apart: under the 90px jump peak, so each one is
+      // reachable from the one below rather than merely visible from it.
+      const tiers = 1 + Math.floor(rng() * zone.ledgeTiers);
+      let lx = lo + rng() * Math.max(0, hi - lo - maxW);
+      for (let tier = 0; tier < tiers; tier++) {
+        const lw = 70 + rng() * (maxW - 70);
+        lx = Math.max(lo, Math.min(hi - lw, lx));
+        const ly = host.y - (86 + rng() * 40) - tier * 78;
+        rects.push({ x: lx, y: ly, w: lw, h: 12, oneWay: true, zone: zone.key });
+        ledges.push(rects[rects.length - 1]);
+        // stagger each tier sideways so the stack is climbable, not a chimney
+        lx += (rng() < 0.5 ? -1 : 1) * (40 + rng() * 40);
+      }
     }
   }
 

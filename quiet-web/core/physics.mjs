@@ -136,13 +136,26 @@ export function stepCharacter(body, input, rects, dt = FIXED_DT, T = TUNING) {
   body.onGround = false;
 
   for (let s = 0; s < steps; s++) {
+    // Which way the body was travelling when it entered these rects. Captured
+    // before the loop, not read from body.v* inside it, because the first
+    // contact zeroes the velocity — and then a second overlapping rect would be
+    // resolved as if the body had been moving the *other* way.
+    //
+    // Overlapping rects are normal: crates sit on slabs, and abutting slabs of
+    // different heights overlap at their seam. Reading a zeroed vy there put a
+    // falling body through the head-bump branch and teleported it to the
+    // underside of the ground, 900px down. It looked like the floor had a hole
+    // in it, in exactly one place, on one seed.
+    const movingRight = body.vx > 0;
+    const falling = body.vy > 0;
+
     // X axis
     body.x += body.vx * sdt;
     let box = boxOf(body);
     for (const r of rects) {
       if (r.oneWay) continue;            // never blocked horizontally by a ledge
       if (!overlaps(box, r)) continue;
-      body.x = body.vx > 0 ? r.x - body.w / 2 : r.x + r.w + body.w / 2;
+      body.x = movingRight ? r.x - body.w / 2 : r.x + r.w + body.w / 2;
       body.vx = 0;
       box = boxOf(body);
     }
@@ -153,8 +166,8 @@ export function stepCharacter(body, input, rects, dt = FIXED_DT, T = TUNING) {
     box = boxOf(body);
     for (const r of rects) {
       if (!overlaps(box, r)) continue;
-      if (!blocks(r, body, prevFeet, body.vy > 0, dropping)) continue;
-      if (body.vy > 0) {
+      if (!blocks(r, body, prevFeet, falling, dropping)) continue;
+      if (falling) {
         body.y = r.y;
         body.onGround = true;
       } else {

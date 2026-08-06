@@ -2,7 +2,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { generateLevel, groundYAt, safeSpotNear, ZONES, STEP_UP, mulberry32 } from '../core/level.mjs';
+import {
+  generateLevel, groundYAt, safeSpotNear, ZONES, STEP_UP, LEDGE_RUNOUT, mulberry32,
+} from '../core/level.mjs';
 import { TUNING } from '../core/physics.mjs';
 import { FACTS } from '../core/facts.mjs';
 
@@ -109,4 +111,77 @@ test('the seeded rng is stable and stays in range', () => {
   const again = mulberry32(1234);
   assert.deepEqual([again(), again(), again()], first);
   for (const v of first) assert.ok(v >= 0 && v < 1);
+});
+
+// ---- one-way ledges must not be traps
+
+test('no ledge drops you off the end of its host slab', () => {
+  // A ledge is a route, and stepping off the end of one is a fall that travels.
+  // If the ground beneath runs out inside that distance the drop lands in
+  // whatever comes next — and when that is a gap, the level is impassable even
+  // though the ledge and the gap are each perfectly legal. The bot found this
+  // twice in forty seeds the first time the grove got three tiers of ledges.
+  for (let seed = 1; seed <= 40; seed++) {
+    const level = generateLevel(seed);
+    const solids = level.rects.filter((r) => !r.oneWay);
+
+    for (const ledge of level.rects.filter((r) => r.oneWay)) {
+      const under = solids.filter((s) => s.x < ledge.x + ledge.w && s.x + s.w > ledge.x);
+      assert.ok(under.length > 0, `seed ${seed}: a ledge at x=${ledge.x.toFixed(0)} floats over nothing`);
+
+      const runout = Math.max(...under.map((s) => s.x + s.w)) - (ledge.x + ledge.w);
+      assert.ok(runout >= LEDGE_RUNOUT - 1,
+        `seed ${seed}: ledge at x=${ledge.x.toFixed(0)} ends ${runout.toFixed(0)}px ` +
+        `before its ground runs out, needs ${LEDGE_RUNOUT}`);
+    }
+  }
+});
+
+test('each zone builds its ground by its own grammar', () => {
+  // The zones are meant to be three places. Three places that differ only in
+  // how wobbly the floor is read as one place with three palettes.
+  const kinds = new Set(ZONES.map((z) => z.terrain));
+  assert.equal(kinds.size, ZONES.length, 'two zones share a terrain grammar');
+
+  const level = generateLevel(7);
+  const heights = {};
+  for (const zone of ZONES) {
+    heights[zone.key] = [...new Set(
+      level.rects.filter((r) => !r.oneWay && r.zone === zone.key).map((r) => r.y),
+    )];
+  }
+
+  // the canyon snaps to a rack unit; the others do not
+  const canyon = ZONES.find((z) => z.key === 'canyon');
+  const spans = heights.canyon.map((y) => Math.abs(y - Math.min(...heights.canyon)));
+  const offGrid = spans.filter((d) => d % canyon.rack > 1 && d % canyon.rack < canyon.rack - 1);
+  assert.equal(offGrid.length, 0,
+    `canyon heights should sit on the ${canyon.rack}px rack, ${offGrid.length} do not`);
+
+  // the grove's floor is nearly level — its height is overhead, in the ledges
+  const groveSpread = Math.max(...heights.grove) - Math.min(...heights.grove);
+  const meadowSpread = Math.max(...heights.meadow) - Math.min(...heights.meadow);
+  assert.ok(groveSpread < meadowSpread,
+    `grove floor spread ${groveSpread} should be flatter than the meadow's ${meadowSpread}`);
+
+  const ledgesIn = (key) => level.rects.filter((r) => r.oneWay && r.zone === key).length;
+  assert.ok(ledgesIn('grove') > ledgesIn('meadow') * 1.5,
+    `grove has ${ledgesIn('grove')} ledges against the meadow's ${ledgesIn('meadow')}`);
+});
+
+test('zones join at a level seam, not a cliff', () => {
+  // Each zone used to reset its surface to GROUND_Y, which put a step of up to
+  // the previous zone's whole band at the boundary — twice STEP_UP in the
+  // canyon's case, a wall the generator would never allow anywhere else.
+  for (let seed = 1; seed <= 20; seed++) {
+    const level = generateLevel(seed);
+    for (const zone of ZONES.slice(1)) {
+      const before = groundYAt(level, zone.start - 8);
+      const after = groundYAt(level, zone.start + 8);
+      assert.ok(before !== null && after !== null,
+        `seed ${seed}: no ground across the ${zone.key} seam`);
+      assert.ok(before - after <= STEP_UP,
+        `seed ${seed}: ${zone.key} opens ${(before - after).toFixed(0)}px above the zone before it`);
+    }
+  }
 });

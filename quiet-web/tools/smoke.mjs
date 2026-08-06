@@ -120,7 +120,7 @@ const reading = await page.evaluate(async () => {
     peak = Math.max(peak, q.gaze.value);
     await new Promise((r) => requestAnimationFrame(r));
   }
-  return { fact: q.run.fact?.title || null, beacon: !!q.run.factBeacon, gaze: peak };
+  return { fact: q.run.fact?.title || null, beacon: !!q.run.factAt, gaze: peak };
 });
 check('lighting a beacon raises its fact card', !!reading.fact && reading.beacon,
   reading.fact || 'no fact');

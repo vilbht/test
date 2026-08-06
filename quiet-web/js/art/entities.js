@@ -123,6 +123,23 @@ export function drawTracker(ctx, k, t) {
   const r = 9.5;
 
   ctx.save();
+
+  // The first tracker of the run is ringed while its warning card is up, so the
+  // words on the card have something to be about. Two rings breathing out of
+  // phase — one steady circle would read as a selection box rather than an
+  // alarm, and the game has nothing else that pulses.
+  if (k.flagged) {
+    for (let i = 0; i < 2; i++) {
+      const beat = (t * 0.9 + i * 0.5) % 1;
+      ctx.globalAlpha = (1 - beat) * 0.75;
+      ctx.strokeStyle = WARN;
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.arc(x, y, r + 6 + beat * 20, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
   for (let i = 0; i < 5; i++) {
     const a = (i / 5) * Math.PI * 2 + t * (k.clinging ? 1.6 : 0.5) + k.phase;
     ctx.strokeStyle = k.clinging ? 'rgba(255,92,138,0.55)' : 'rgba(120,96,160,0.45)';
@@ -367,6 +384,9 @@ function wrapText(ctx, text, maxWidth) {
  * put it — a card anchored over a beacon near the edge of the level has to be
  * nudged back into view, and you cannot clamp a box you have not measured.
  */
+/** Magenta, for anything the card is warning about rather than explaining. */
+const WARN = '#FF5C8A';
+
 export function layoutFactCard(ctx, fact) {
   const inner = CARD.width - CARD.padding * 2;
   ctx.font = CARD.bodyFont;
@@ -383,7 +403,7 @@ export function layoutFactCard(ctx, fact) {
  *               nudged back on screen, and the pointer has to stay on the beacon
  *               when it does — otherwise the card detaches from what said it.
  */
-export function drawFactCard(ctx, layout, x, y, appear, pointX = x) {
+export function drawFactCard(ctx, layout, x, y, appear, pointX = x, tone = 'fact') {
   if (appear <= 0.01) return;
 
   const a = Math.max(0, Math.min(1, appear));
@@ -415,15 +435,18 @@ export function drawFactCard(ctx, layout, x, y, appear, pointX = x) {
   ctx.lineWidth = 1;
   ctx.stroke();
 
-  // the gold spine, matching the beacon that is speaking
-  ctx.fillStyle = GOLD;
+  // The spine and the title take the colour of whatever is speaking: gold for a
+  // beacon, magenta for a warning. It is the only difference between the two
+  // kinds of card, and it is enough — the tone is legible before the words are.
+  const accent = tone === 'warn' ? WARN : GOLD;
+  ctx.fillStyle = accent;
   ctx.beginPath();
   ctx.roundRect(left, top + 10, 3, layout.h - 20, 2);
   ctx.fill();
 
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = GOLD;
+  ctx.fillStyle = accent;
   ctx.font = CARD.titleFont;
   ctx.fillText(layout.title, left + CARD.padding, top + CARD.padding + 13);
 

@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRun, stepRules, stepTrackers, gazeAt, RULES } from '../core/rules.mjs';
+import { NOTICES } from '../core/facts.mjs';
 import { generateLevel, groundYAt } from '../core/level.mjs';
 import { createBody, FIXED_DT } from '../core/physics.mjs';
 
@@ -151,7 +152,7 @@ function litBeacon(seed = 3) {
 
 test('the fox looks up the moment a fact card appears', () => {
   const { run, body, beacon } = litBeacon();
-  assert.equal(run.factBeacon, beacon, 'the card must know which beacon raised it');
+  assert.equal(run.factAt, beacon, 'the card must know which beacon raised it');
   assert.equal(gazeAt(run, body), 1);
 });
 
@@ -191,4 +192,101 @@ test('no card, no gaze', () => {
   const { run, body } = fixture();
   assert.equal(run.fact, null);
   assert.equal(gazeAt(run, body), 0);
+});
+
+// ---- the first tracker gets called out
+
+/** Park the fox next to a live tracker and step once. */
+function meetTracker(seed = 3) {
+  const { run, level, body } = fixture(seed);
+  const t = level.trackers.find((x) => !x.dispersed);
+  assert.ok(t, 'the fixture has no trackers');
+  // A realistic approach distance: inside the notice radius, well outside the
+  // cling radius, which is the situation the warning exists for.
+  body.x = t.x - RULES.noticeRadius * 0.7;
+  body.y = t.y + body.h / 2;
+  stepRules(run, level, body, NO_INPUT, FIXED_DT);
+  return { run, level, body, tracker: t };
+}
+
+test('the first tracker the fox meets raises a warning', () => {
+  const { run, tracker } = meetTracker();
+  assert.equal(run.fact, NOTICES.tracker);
+  assert.equal(run.factAt, tracker, 'the card should point at the tracker itself');
+  assert.equal(run.factTone, 'warn');
+  assert.equal(tracker.flagged, true, 'and the tracker should be ringed');
+});
+
+test('the warning arrives before the tracker can reach you', () => {
+  // A warning that lands at the same moment as the thing it warns about is not
+  // a warning. The notice radius has to clear the cling radius by a wide margin.
+  assert.ok(RULES.noticeRadius > RULES.clingRadius * 4,
+    `notice at ${RULES.noticeRadius} against a cling at ${RULES.clingRadius}`);
+});
+
+test('walking straight into your first tracker still warns you', () => {
+  // Notice and cling can be crossed in the same step. Running the notice check
+  // after the cling loop meant the player who most needed the warning — the one
+  // who ran into it — was the only one who never got it.
+  const { run, level, body } = fixture(3);
+  const t = level.trackers.find((x) => !x.dispersed);
+  body.x = t.x;
+  body.y = t.y + body.h / 2;
+  stepRules(run, level, body, NO_INPUT, FIXED_DT);
+
+  assert.equal(run.fact, NOTICES.tracker, 'no warning for a head-on collision');
+  assert.equal(t.clinging, true, 'and it should have clung in the same step');
+});
+
+test('and only the first — it is a warning, not a nag', () => {
+  const { run, level, body } = meetTracker();
+  assert.equal(run.metTracker, true);
+
+  // let it expire, then walk into another tracker
+  for (let i = 0; i < Math.ceil(RULES.factSeconds / FIXED_DT) + 2; i++) {
+    stepRules(run, level, body, NO_INPUT, FIXED_DT);
+  }
+  assert.equal(run.fact, null, 'the card should have expired');
+
+  const other = level.trackers.find((x) => !x.dispersed && x.flagged !== true);
+  body.x = other.x;
+  body.y = other.y;
+  stepRules(run, level, body, NO_INPUT, FIXED_DT);
+  assert.equal(run.fact, null, 'a second tracker must not raise the notice again');
+});
+
+test('an expiring card unrings the tracker it was about', () => {
+  const { run, level, body, tracker } = meetTracker();
+  assert.equal(tracker.flagged, true);
+
+  for (let i = 0; i < Math.ceil(RULES.factSeconds / FIXED_DT) + 2; i++) {
+    stepRules(run, level, body, NO_INPUT, FIXED_DT);
+  }
+  assert.equal(tracker.flagged, false, 'a ring left on after the card is a stuck highlight');
+});
+
+test('a card already on screen is not interrupted by a tracker', () => {
+  // Two cards cannot share the screen, and the beacon fact is the one the
+  // player deliberately went and earned. The notice waits its turn — and stays
+  // owed, rather than being silently spent while it could not be shown.
+  const { run, level, body } = fixture();
+  const beacon = level.beacons[0];
+  run.fact = beacon.fact;
+  run.factAt = beacon;
+  run.factTone = 'fact';
+  run.factTimer = RULES.factSeconds;
+
+  const t = level.trackers.find((x) => !x.dispersed);
+  body.x = t.x;
+  body.y = t.y + body.h / 2;
+  stepRules(run, level, body, NO_INPUT, FIXED_DT);
+
+  assert.equal(run.fact, beacon.fact, 'the beacon fact should still be showing');
+  assert.equal(run.metTracker, false, 'and the notice should still be owed');
+  assert.notEqual(t.flagged, true, 'nor should the tracker be ringed yet');
+});
+
+test('the fox reads the warning the same way it reads a fact', () => {
+  const { run, body } = meetTracker();
+  assert.ok(gazeAt(run, body) > 0, 'should look up at a warning too');
 });
