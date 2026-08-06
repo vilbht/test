@@ -24,7 +24,7 @@ import {
   drawSparkle, drawBeacon, drawTracker, drawCrumb, drawCrate, drawSeesaw,
   drawVine, drawWindStreaks, drawLeaf, drawPulseRing, layoutFactCard, drawFactCard,
 } from './art/entities.js';
-import { drawFirefoxMark } from './art/logo.js';
+import { drawFirefoxMark, markReady } from './art/logo.js';
 import { createAudio } from './audio.js';
 
 const VW = 960;
@@ -41,6 +41,9 @@ const el = {
   start: document.getElementById('start'),
   begin: document.getElementById('begin'),
   mute: document.getElementById('mute'),
+  pause: document.getElementById('pause'),
+  paused: document.getElementById('paused'),
+  resume: document.getElementById('resume'),
 };
 
 // ---------------------------------------------------------------- input
@@ -61,7 +64,8 @@ const wasPressed = (action) => BINDINGS[action].some((c) => pressed.has(c));
 
 addEventListener('keydown', (e) => {
   if (e.code === 'Backquote') { el.debug.hidden = !el.debug.hidden; return; }
-  if (e.code === 'KeyM') { el.mute.hidden = !audio.toggleMute(); return; }
+  if (e.code === 'KeyM') { setMuted(audio.toggleMute()); return; }
+  if (e.code === 'KeyP' || e.code === 'Escape') { e.preventDefault(); setPaused(!paused); return; }
   if (Object.values(BINDINGS).flat().includes(e.code)) e.preventDefault();
   if (!held.has(e.code)) pressed.add(e.code);
   held.add(e.code);
@@ -110,6 +114,7 @@ let elapsed = 0;
 let gait = 0;
 let landImpulse = 0;
 let running = false;
+let paused = false;
 let grabbed = null;      // { vine, index } while swinging
 let fps = 60;
 
@@ -583,12 +588,50 @@ function frame(now) {
   requestAnimationFrame(frame);
   if (!running) return;
 
+  // Paused still renders — the world holds its pose behind the overlay rather
+  // than freezing on whatever was in the backbuffer — but nothing is stepped,
+  // and `last` is cleared so resuming does not hand the accumulator a
+  // half-minute of elapsed time to catch up on in one frame.
+  if (paused) {
+    last = 0;
+    render(clock.alpha);
+    return;
+  }
+
   const dt = last ? Math.min(0.25, (now - last) / 1000) : FIXED_DT;
   last = now;
   fps += (1 / Math.max(dt, 1e-4) - fps) * 0.1;
 
   advance(clock, dt, step);
   render(clock.alpha);
+}
+
+/**
+ * Pausing silences the score as well as the simulation. Leaving the generative
+ * music running under a pause overlay is the one thing that makes a pause feel
+ * broken — the world has stopped but it is still humming to itself.
+ */
+function setPaused(next) {
+  if (!running || paused === next) return;
+  paused = next;
+  el.paused.hidden = !paused;
+  el.pause.textContent = paused ? '▶' : '❚❚';
+  el.pause.setAttribute('aria-label', paused ? 'Resume' : 'Pause');
+  el.pause.setAttribute('aria-pressed', String(paused));
+  audio.setSuspended(paused);
+  // Only the edge-triggered buffer is dropped. Clearing `held` too was wrong:
+  // a player pausing mid-run is still physically holding right, and wiping that
+  // leaves the fox inert on resume until they let go and press again. The keyup
+  // still arrives if they do release during the pause, and the blur handler
+  // covers the one case where it would not.
+  pressed.clear();
+  if (!paused) canvas.focus();
+}
+
+function setMuted(next) {
+  el.mute.textContent = next ? '🔇' : '🔊';
+  el.mute.setAttribute('aria-label', next ? 'Unmute' : 'Mute');
+  el.mute.setAttribute('aria-pressed', String(next));
 }
 
 el.begin.addEventListener('click', () => {
@@ -599,6 +642,14 @@ el.begin.addEventListener('click', () => {
   canvas.focus();
 });
 
+el.pause.addEventListener('click', () => setPaused(!paused));
+el.resume.addEventListener('click', () => setPaused(false));
+el.mute.addEventListener('click', () => setMuted(audio.toggleMute()));
+
+// Losing the window mid-run pauses rather than letting the fox keep going
+// somewhere the player cannot see.
+addEventListener('blur', () => setPaused(true));
+
 seedLeaves();
 resize();
 addEventListener('resize', resize);
@@ -608,4 +659,7 @@ requestAnimationFrame(frame);
 render(0);
 
 // exposed for the smoke test to drive the game without synthetic key events
-globalThis.__quiet = { body, run, level, tail, spin, gaze, start: () => el.begin.click() };
+globalThis.__quiet = {
+  body, run, level, tail, spin, gaze,
+  isPaused: () => paused, setPaused, isMuted: () => audio.muted, markReady, held,
+  start: () => el.begin.click() };

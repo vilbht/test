@@ -16,7 +16,14 @@
 <script type="module">
 // A preview for the one thing in the game that is only ever seen for a third of
 // a second in heavy motion blur — and is therefore impossible to judge in place.
-import { drawFirefoxMark } from '../js/art/logo.js';
+import { drawFirefoxMark, markReady } from '../js/art/logo.js';
+
+// The mark is an SVG image and decodes asynchronously; drawing straight away
+// catches the fallback and quietly tells you the real artwork is broken.
+await new Promise((done) => {
+  const wait = () => (markReady() ? done() : requestAnimationFrame(wait));
+  wait();
+});
 
 const ctx = document.getElementById('c').getContext('2d');
 const sizes = [18, 26, 34, 44, 68];

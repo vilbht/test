@@ -72,8 +72,23 @@ html, body {
 
 #sparkles { color: var(--violet); }
 #beacons { color: var(--gold); }
-.muted { opacity: 0.6; }
 .pill[hidden] { display: none; }
+
+/* The HUD as a whole ignores the mouse so it never eats a click meant for the
+   game; the two buttons in it opt back in. */
+button.tap {
+  pointer-events: auto;
+  color: var(--ink);
+  cursor: pointer;
+  font: 600 14px/1 inherit;
+  padding: 6px 12px;
+  min-width: 40px;
+  transition: background 120ms ease, transform 120ms ease;
+}
+
+button.tap:hover { background: rgba(60, 34, 100, 0.9); transform: translateY(-1px); }
+button.tap:active { transform: translateY(0); }
+button.tap[aria-pressed="true"] { opacity: 0.55; }
 
 .focus-track {
   width: 168px;

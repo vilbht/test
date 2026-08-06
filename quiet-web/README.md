@@ -26,8 +26,13 @@ disk — it needs a server only because browsers refuse module imports over
 | <kbd>Space</kbd> | jump — hold for height |
 | <kbd>↓</kbd> | drop through a ledge |
 | <kbd>Shift</kbd> | shield pulse — the fox spins into the Firefox mark and back |
+| <kbd>P</kbd> or <kbd>Esc</kbd> | pause |
 | <kbd>M</kbd> | mute |
 | <kbd>`</kbd> | physics debug overlay |
+
+Pause and mute are also buttons in the HUD. Pausing suspends the audio context
+as well as the simulation — a generative score humming away under a pause
+overlay is the one thing that makes a pause feel broken.
 
 `?seed=42` generates a different world. `?art=grey` swaps the fox for flat
 boxes, which is how the movement was tuned before any art existed.
@@ -113,7 +118,17 @@ something overstated, that is a bug.
 
 ## Credit
 
-The fox is Mozilla's mascot and Firefox is Mozilla's trademark. The mark drawn
-during the shield pulse is an evocation of it, not a reproduction. This is a
+The fox is Mozilla's mascot and Firefox is Mozilla's trademark.
+
+The mark that hangs in the sky as the sun, and that the fox becomes during the
+shield pulse, is **Mozilla's actual logo artwork**, inlined as an SVG in
+`js/art/firefox-mark.js` and kept alongside as `assets/firefox-logo.svg`.
+Earlier versions drew an imitation from scratch; it was recognisably close and
+unmistakably wrong, because what makes the logo read is a dozen overlapping
+gradients that a handful of filled paths cannot stand in for. A drawn fallback
+is still in `logo.js` and shows for the few frames before the SVG decodes.
+
+That means this repository contains Mozilla's trademarked artwork. It is a
 personal fan project, not affiliated with or endorsed by Mozilla, and is not
-intended for distribution as a product.
+intended for distribution as a product. If it ever were, the logo would have to
+come out or be cleared first.

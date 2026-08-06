@@ -127,6 +127,23 @@ check('lighting a beacon raises its fact card', !!reading.fact && reading.beacon
 check('and the fox looks up to read it', reading.gaze > 0.3,
   `gaze ${reading.gaze.toFixed(2)}`);
 
+// ---- the real logo artwork, not the drawn fallback
+check('the Firefox mark decoded',
+  await page.evaluate(() => globalThis.__quiet.markReady()));
+
+// ---- pause stops the world, and resuming lets it carry on
+const pauseCheck = await page.evaluate(async () => {
+  const q = globalThis.__quiet;
+  q.setPaused(true);
+  const at = q.body.x;
+  await new Promise((r) => setTimeout(r, 350));
+  const held = q.body.x;
+  q.setPaused(false);
+  return { frozen: Math.abs(held - at) < 0.001, paused: false };
+});
+check('pause freezes the simulation', pauseCheck.frozen);
+check('and resuming unpauses', !(await page.evaluate(() => globalThis.__quiet.isPaused())));
+
 // ---- the shield pulse spins the fox into the Firefox mark and back
 const flourish = await page.evaluate(async () => {
   const q = window.__quiet;

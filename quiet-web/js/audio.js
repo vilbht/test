@@ -31,6 +31,7 @@ export function createAudio() {
   let root = ZONE_ROOT.meadow;
   let muted = false;
   let started = false;
+  let suspended = false;
 
   /** Built lazily: an AudioContext created before a gesture starts suspended. */
   function build() {
@@ -205,6 +206,32 @@ export function createAudio() {
       osc.start();
       osc.stop(ctx.currentTime + 0.3);
     },
+
+    /**
+     * Pause the score along with the game.
+     *
+     * Suspending the AudioContext alone is not enough: the lookahead scheduler
+     * queues notes against `ctx.currentTime`, which stops advancing while the
+     * context is suspended, so the scheduler would spin at its horizon and then
+     * dump every missed note at once on resume. The timer has to stop too, and
+     * `nextNote` has to be re-based off the clock it finds when it comes back.
+     */
+    setSuspended(next) {
+      if (!ctx || !started || suspended === next) return suspended;
+      suspended = next;
+
+      if (next) {
+        if (timer) { clearInterval(timer); timer = null; }
+        ctx.suspend();
+      } else {
+        ctx.resume();
+        nextNote = ctx.currentTime + 0.25;
+        timer = setInterval(schedule, 180);
+      }
+      return suspended;
+    },
+
+    get suspended() { return suspended; },
 
     toggleMute() {
       muted = !muted;
