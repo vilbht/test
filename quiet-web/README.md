@@ -26,6 +26,7 @@ disk — it needs a server only because browsers refuse module imports over
 | <kbd>Space</kbd> | jump — hold for height |
 | <kbd>↓</kbd> | drop through a ledge |
 | <kbd>Shift</kbd> | shield pulse — the fox spins into the Firefox mark and back |
+| <kbd>E</kbd> | switch on whatever setting the card on screen is offering |
 | <kbd>P</kbd> or <kbd>Esc</kbd> | pause |
 | <kbd>M</kbd> | mute |
 | <kbd>`</kbd> | physics debug overlay |
@@ -36,6 +37,32 @@ overlay is the one thing that makes a pause feel broken.
 
 `?seed=42` generates a different world. `?art=grey` swaps the fox for flat
 boxes, which is how the movement was tuned before any art existed.
+
+## Switching the settings on
+
+Lighting a beacon raises a card about one real privacy feature, and the card
+ends with a call to action: the feature itself, offered as something you can
+turn on right there with <kbd>E</kbd>. It then does something. Nine features,
+grouped into the three pressures a tracker can put on you:
+
+| | what switching it on changes |
+|---|---|
+| **shed** | a clinging tracker lets go on its own, sooner with each one you take |
+| **notice** | trackers have to get closer before they can cling at all |
+| **burden** | each tracker that does cling slows you less |
+
+Grouped rather than given nine bespoke mechanics, because the game has exactly
+one antagonist. Every privacy feature reasonably reduces tracker pressure;
+inventing nine separate systems would have meant inventing eight analogies that
+do not hold, and the cards would have started saying things about the real web
+that were shaped by what was convenient to code.
+
+Each group is bounded, so a fully protected run is visibly calmer but still has
+trackers in it. That is the honest version of the claim: these settings help,
+they do not make the web a place with nothing in it.
+
+The tracker warning has a call to action too, but not a setting — that one is
+something to *do*, so it names <kbd>Shift</kbd> instead.
 
 ## Tests
 

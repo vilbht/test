@@ -32,6 +32,18 @@ export const RULES = Object.freeze({
   // Well outside clingRadius on purpose: a warning that arrives at the same
   // moment as the thing it is warning about is not a warning.
   noticeRadius: 165,
+
+  // ---- protections, switched on from the card that explains them.
+  //
+  // Cumulative within their group and deliberately generous: nine of them exist
+  // and the run should be visibly calmer by the end, because that is the point
+  // being made. Each is bounded so a fully protected run still has trackers in
+  // it — a game with no antagonist left is not a reward, it is an empty level.
+  shedSeconds: 7,         // divided by the number of shed protections on
+  noticePerLevel: 0.2,    // each notice protection shrinks the cling radius by this
+  noticeFloor: 0.34,      // and never below this fraction of it
+  burdenPerLevel: 0.26,   // each burden protection cuts what a clinging tracker costs
+  burdenFloor: 0.2,
 });
 
 export function createRun() {
@@ -48,6 +60,7 @@ export function createRun() {
     factTone: 'fact',   // 'fact' | 'warn' — the card's colour
     factTimer: 0,
     metTracker: false,  // the tracker warning fires once per run
+    protections: [],    // the protect blocks switched on, in the order taken
     distance: 0,
     finished: false,
   };
@@ -59,10 +72,50 @@ export function createRun() {
  * @param input  { pulsePressed }
  * @returns events worth reacting to in audio/visuals
  */
+/** How many switched-on protections ease a given pressure. */
+function levelsOf(run, effect) {
+  let n = 0;
+  for (const p of run.protections) if (p.effect === effect) n++;
+  return n;
+}
+
+/** Cling radius after any concealment protections. */
+export function clingRadiusFor(run) {
+  const shrink = 1 - levelsOf(run, 'notice') * RULES.noticePerLevel;
+  return RULES.clingRadius * Math.max(RULES.noticeFloor, shrink);
+}
+
+/** What one clinging tracker costs in speed, after any burden protections. */
+export function clingSlowFor(run) {
+  const shrink = 1 - levelsOf(run, 'burden') * RULES.burdenPerLevel;
+  return RULES.clingSlow * Math.max(RULES.burdenFloor, shrink);
+}
+
+/** How long a tracker can hold on, after any shed protections. Infinity if none. */
+export function shedAfter(run) {
+  const n = levelsOf(run, 'shed');
+  return n === 0 ? Infinity : RULES.shedSeconds / n;
+}
+
+/**
+ * Switch on the protection the card currently up is about.
+ *
+ * Returns the protection if one was taken, or null — already on, no card, or a
+ * card with nothing to switch on, which is the tracker warning. The caller uses
+ * the return value to decide whether to make a sound, so "nothing happened" has
+ * to be distinguishable from "something did".
+ */
+export function takeProtection(run) {
+  const p = run.fact?.protect;
+  if (!p || run.protections.includes(p)) return null;
+  run.protections.push(p);
+  return p;
+}
+
 export function stepRules(run, level, body, input, dt) {
   const events = {
     collected: 0, litBeacon: null, dispersed: 0, pulsed: false, respawned: false,
-    metTracker: null,
+    metTracker: null, shed: 0, protected: null,
   };
 
   run.focus = Math.min(1, run.focus + RULES.focusRegen * dt);
@@ -85,6 +138,9 @@ export function stepRules(run, level, body, input, dt) {
     body.vy = 0;
     events.respawned = true;
   }
+
+  // ---- the card's call to action
+  if (input.actPressed) events.protected = takeProtection(run);
 
   // ---- shield pulse: the only "attack", and it disperses rather than destroys
   if (input.pulsePressed && run.cooldown === 0 && run.focus >= RULES.pulseCost) {
@@ -127,15 +183,35 @@ export function stepRules(run, level, body, input, dt) {
   }
 
   // ---- trackers cling on contact and ride along, slowing the fox
+  const radius = clingRadiusFor(run);
+  const shed = shedAfter(run);
   let clung = 0;
+
   for (const t of level.trackers) {
     if (t.dispersed) continue;
     const d = Math.hypot(t.x - body.x, t.y - (body.y - body.h / 2));
-    if (d < RULES.clingRadius) t.clinging = true;
-    if (t.clinging) clung++;
+    if (!t.clinging && d < radius) {
+      t.clinging = true;
+      t.held = 0;
+    }
+    if (!t.clinging) continue;
+
+    t.held = (t.held || 0) + dt;
+    if (t.held >= shed) {
+      // Let go and drift off rather than vanish: a tracker that disappears
+      // looks like it was destroyed, and nothing in this game destroys anything.
+      t.clinging = false;
+      t.held = 0;
+      t.origin = t.x;
+      t.home = t.y;
+      events.shed++;
+      continue;
+    }
+    clung++;
   }
+
   run.clung = clung;
-  run.speedScale = Math.max(RULES.minSpeedScale, 1 - clung * RULES.clingSlow);
+  run.speedScale = Math.max(RULES.minSpeedScale, 1 - clung * clingSlowFor(run));
 
   // ---- sparkles
   for (const s of level.sparkles) {

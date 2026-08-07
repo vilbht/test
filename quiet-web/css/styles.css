@@ -72,6 +72,7 @@ html, body {
 
 #sparkles { color: var(--violet); }
 #beacons { color: var(--gold); }
+#shields { color: var(--violet); }
 .pill[hidden] { display: none; }
 
 /* The HUD as a whole ignores the mouse so it never eats a click meant for the

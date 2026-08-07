@@ -127,6 +127,23 @@ check('lighting a beacon raises its fact card', !!reading.fact && reading.beacon
 check('and the fox looks up to read it', reading.gaze > 0.3,
   `gaze ${reading.gaze.toFixed(2)}`);
 
+// ---- the card's call to action actually switches the setting on
+const cta = await page.evaluate(async () => {
+  const q = globalThis.__quiet;
+  const before = q.run.protections.length;
+  window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' }));
+  window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyE' }));
+  for (let i = 0; i < 20; i++) await new Promise((r) => requestAnimationFrame(r));
+  return {
+    before,
+    after: q.run.protections.length,
+    name: q.run.protections[0]?.name || null,
+    hud: document.getElementById('shields').textContent,
+  };
+});
+check('pressing the card\'s key takes its protection', cta.after === cta.before + 1, cta.name);
+check('and the HUD counts it', /1 \/ 9/.test(cta.hud), cta.hud);
+
 // ---- the real logo artwork, not the drawn fallback
 check('the Firefox mark decoded',
   await page.evaluate(() => globalThis.__quiet.markReady()));

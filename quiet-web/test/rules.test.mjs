@@ -2,8 +2,11 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRun, stepRules, stepTrackers, gazeAt, RULES } from '../core/rules.mjs';
-import { NOTICES } from '../core/facts.mjs';
+import {
+  createRun, stepRules, stepTrackers, gazeAt, takeProtection,
+  clingRadiusFor, clingSlowFor, shedAfter, RULES,
+} from '../core/rules.mjs';
+import { FACTS, NOTICES } from '../core/facts.mjs';
 import { generateLevel, groundYAt } from '../core/level.mjs';
 import { createBody, FIXED_DT } from '../core/physics.mjs';
 
@@ -289,4 +292,124 @@ test('a card already on screen is not interrupted by a tracker', () => {
 test('the fox reads the warning the same way it reads a fact', () => {
   const { run, body } = meetTracker();
   assert.ok(gazeAt(run, body) > 0, 'should look up at a warning too');
+});
+
+// ---- the call to action on a card actually switches something on
+
+const ACT = { pulsePressed: false, actPressed: true };
+
+test('every fact offers a real setting to switch on', () => {
+  for (const f of FACTS) {
+    assert.ok(f.protect, `"${f.title}" has nothing to switch on`);
+    assert.ok(f.protect.name.length > 0);
+    assert.ok(['shed', 'notice', 'burden'].includes(f.protect.effect),
+      `"${f.title}" claims an effect the rules do not implement: ${f.protect.effect}`);
+    assert.ok(f.protect.does.length > 0, `"${f.title}" never says what it changed`);
+  }
+});
+
+test('the tracker warning offers an action instead, since it is not a setting', () => {
+  assert.equal(NOTICES.tracker.protect, undefined);
+  assert.equal(NOTICES.tracker.act.key, 'Shift');
+});
+
+test('pressing the key on a card takes its protection', () => {
+  const { run, level, body } = litBeacon();
+  assert.equal(run.protections.length, 0);
+
+  const events = stepRules(run, level, body, ACT, FIXED_DT);
+  assert.equal(events.protected, run.fact.protect);
+  assert.deepEqual(run.protections, [run.fact.protect]);
+});
+
+test('and taking it twice does not stack it', () => {
+  const { run, level, body } = litBeacon();
+  stepRules(run, level, body, ACT, FIXED_DT);
+  const again = stepRules(run, level, body, ACT, FIXED_DT);
+
+  assert.equal(again.protected, null, 'a repeat press should report nothing happened');
+  assert.equal(run.protections.length, 1);
+});
+
+test('there is nothing to take when no card is up', () => {
+  const { run, level, body } = fixture();
+  assert.equal(takeProtection(run), null);
+  stepRules(run, level, body, ACT, FIXED_DT);
+  assert.equal(run.protections.length, 0);
+});
+
+test('concealment shrinks the radius trackers can catch you from', () => {
+  const run = createRun();
+  const base = clingRadiusFor(run);
+  assert.equal(base, RULES.clingRadius);
+
+  const notice = FACTS.filter((f) => f.protect.effect === 'notice').map((f) => f.protect);
+  let previous = base;
+  for (const p of notice) {
+    run.protections.push(p);
+    const now = clingRadiusFor(run);
+    assert.ok(now < previous, 'each concealment protection should shrink it further');
+    previous = now;
+  }
+  // but never to nothing: a run with no antagonist left is an empty level
+  assert.ok(previous >= RULES.clingRadius * RULES.noticeFloor - 1e-9);
+  assert.ok(previous > 0);
+});
+
+test('burden protections cut what a clinging tracker costs, with a floor', () => {
+  const run = createRun();
+  assert.equal(clingSlowFor(run), RULES.clingSlow);
+
+  for (const f of FACTS.filter((x) => x.protect.effect === 'burden')) run.protections.push(f.protect);
+  const eased = clingSlowFor(run);
+  assert.ok(eased < RULES.clingSlow, 'should cost less');
+  assert.ok(eased >= RULES.clingSlow * RULES.burdenFloor - 1e-9, 'but never nothing');
+});
+
+test('with no shed protection a tracker never lets go on its own', () => {
+  assert.equal(shedAfter(createRun()), Infinity);
+});
+
+test('shed protections make a clinging tracker let go, sooner each time', () => {
+  const run = createRun();
+  const shed = FACTS.filter((f) => f.protect.effect === 'shed').map((f) => f.protect);
+
+  run.protections.push(shed[0]);
+  const one = shedAfter(run);
+  run.protections.push(shed[1]);
+  assert.ok(shedAfter(run) < one, 'a second protection should shorten the hold');
+});
+
+test('and the tracker actually does let go, in the loop', () => {
+  const { run, level, body } = fixture();
+  const t = level.trackers.find((x) => !x.dispersed);
+  body.x = t.x;
+  body.y = t.y + body.h / 2;
+
+  // cling first, with nothing switched on
+  for (let i = 0; i < 30; i++) stepRules(run, level, body, NO_INPUT, FIXED_DT);
+  assert.equal(t.clinging, true, 'the fixture never got a tracker to cling');
+
+  // now switch on every shed protection and hold still
+  for (const f of FACTS.filter((x) => x.protect.effect === 'shed')) run.protections.push(f.protect);
+  const limit = Math.ceil((shedAfter(run) + 0.5) / FIXED_DT);
+  let released = false;
+  for (let i = 0; i < limit && !released; i++) {
+    released = stepRules(run, level, body, NO_INPUT, FIXED_DT).shed > 0;
+  }
+
+  assert.ok(released, 'the tracker never let go');
+  assert.equal(t.clinging, false);
+  assert.equal(t.dispersed, false, 'letting go is not the same as being destroyed');
+});
+
+test('a fully protected run is calmer but not empty', () => {
+  // The point being made is that these settings help, not that they make the
+  // web a place with nothing in it.
+  const run = createRun();
+  for (const f of FACTS) run.protections.push(f.protect);
+
+  assert.ok(clingRadiusFor(run) > 0, 'trackers can still catch you');
+  assert.ok(clingSlowFor(run) > 0, 'and still cost you something when they do');
+  assert.ok(Number.isFinite(shedAfter(run)));
 });

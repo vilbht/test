@@ -36,6 +36,7 @@ const el = {
   zone: document.getElementById('zone'),
   sparkles: document.getElementById('sparkles'),
   beacons: document.getElementById('beacons'),
+  shields: document.getElementById('shields'),
   focus: document.getElementById('focus'),
   debug: document.getElementById('debug'),
   start: document.getElementById('start'),
@@ -57,6 +58,7 @@ const BINDINGS = {
   jump: ['Space', 'ArrowUp', 'KeyW'],
   drop: ['ArrowDown', 'KeyS'],
   pulse: ['ShiftLeft', 'ShiftRight', 'KeyJ'],
+  act: ['KeyE', 'Enter'],          // the call to action on whatever card is up
 };
 
 const isDown = (action) => BINDINGS[action].some((c) => held.has(c));
@@ -195,7 +197,10 @@ function step(dt) {
   stepLeaves(dt);
   stepTrackers(level, body, dt, elapsed);
 
-  const ruleEvents = stepRules(run, level, body, { pulsePressed: wasPressed('pulse') }, dt);
+  const ruleEvents = stepRules(run, level, body, {
+    pulsePressed: wasPressed('pulse'),
+    actPressed: wasPressed('act'),
+  }, dt);
   if (ruleEvents.pulsed) {
     pulseAt.x = body.x;
     pulseAt.y = body.y - body.h / 2;
@@ -203,6 +208,7 @@ function step(dt) {
     triggerSpin(spin);
   }
   stepSpin(spin, dt);
+  if (ruleEvents.protected) audio.sparkle();
   if (ruleEvents.collected) audio.sparkle();
   if (ruleEvents.litBeacon) audio.beacon(run.lit - 1);
 
@@ -460,7 +466,8 @@ function drawFact() {
   // at, or it cannot be seen at all.
   const y = at.y - (run.factTone === 'warn' ? 26 : 86);
 
-  drawFactCard(ctx, layoutFactCard(ctx, run.fact), at.x, y, appear, run.factTone);
+  const taken = !!run.fact.protect && run.protections.includes(run.fact.protect);
+  drawFactCard(ctx, layoutFactCard(ctx, run.fact, taken), at.x, y, appear, run.factTone);
 }
 
 function drawWorld(zoneKey, ix) {
@@ -556,6 +563,7 @@ function drawHud(zone) {
   el.zone.textContent = zone.name;
   el.sparkles.textContent = `✦ ${run.sparkles}`;
   el.beacons.textContent = `◈ ${run.lit} / ${level.beacons.length}`;
+  el.shields.textContent = `protected ${run.protections.length} / ${level.beacons.length}`;
   el.focus.style.transform = `scaleX(${run.focus})`;
 
   if (!el.debug.hidden) {

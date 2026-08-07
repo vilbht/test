@@ -357,6 +357,11 @@ const CARD = Object.freeze({
   gap: 7,          // between title and body
   pointer: 11,     // half-width of the tail that points at the beacon
   reach: 16,       // how far the pointer drops below the panel
+  ctaGap: 13,      // between the body and the call to action
+  ctaLine: 17,     // a wrapped line of it
+  ctaPad: 7,       // above and below the key cap
+  keyFont: '700 12px ui-monospace, SFMono-Regular, monospace',
+  ctaFont: '600 13px ui-rounded, "Nunito", "Segoe UI", system-ui, sans-serif',
 });
 
 /** Break `text` into lines that fit `maxWidth` at the current font. */
@@ -387,12 +392,76 @@ function wrapText(ctx, text, maxWidth) {
 /** Magenta, for anything the card is warning about rather than explaining. */
 const WARN = '#FF5C8A';
 
-export function layoutFactCard(ctx, fact) {
+/**
+ * The call-to-action row: a key cap, then what pressing it does.
+ *
+ * Drawn as a keyboard key rather than a button because that is what it is —
+ * there is no pointer in this game, and a rectangle that looks clickable on a
+ * canvas nobody can click is a worse affordance than no affordance.
+ */
+function drawCta(ctx, cta, x, y, accent) {
+  ctx.font = CARD.keyFont;
+
+  ctx.fillStyle = cta.taken ? 'rgba(255, 201, 60, 0.16)' : 'rgba(255, 255, 255, 0.13)';
+  ctx.beginPath();
+  ctx.roundRect(x, y, cta.keyW, 22, 6);
+  ctx.fill();
+  ctx.strokeStyle = cta.taken ? accent : 'rgba(255, 255, 255, 0.24)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // "on" rather than a tick: the same lesson as the mute button. A glyph that
+  // renders as an empty box on someone else's machine is worse than a word.
+  ctx.fillStyle = cta.taken ? accent : 'rgba(247, 239, 234, 0.95)';
+  ctx.textAlign = 'center';
+  ctx.fillText(cta.key, x + cta.keyW / 2, y + 15);
+
+  ctx.textAlign = 'left';
+  ctx.font = CARD.ctaFont;
+  ctx.fillStyle = cta.taken ? 'rgba(247, 239, 234, 0.72)' : accent;
+  cta.lines.forEach((line, i) => {
+    ctx.fillText(line, x + cta.keyW + 10, y + 15 + i * CARD.ctaLine);
+  });
+}
+
+export function layoutFactCard(ctx, fact, taken = false) {
   const inner = CARD.width - CARD.padding * 2;
   ctx.font = CARD.bodyFont;
   const lines = wrapText(ctx, fact.body, inner);
-  const h = CARD.padding * 2 + 18 + CARD.gap + lines.length * CARD.lineHeight;
-  return { w: CARD.width, h, lines, title: fact.title, reach: CARD.reach };
+
+  // The call to action: the real setting this fact is about, offered as
+  // something to switch on. Once it is on the same row says so and names what
+  // changed — the card never claims an effect it has not delivered.
+  const cta = ctaFor(ctx, fact, taken, inner);
+  const h = CARD.padding * 2 + 18 + CARD.gap + lines.length * CARD.lineHeight +
+    (cta ? CARD.ctaGap + cta.h : 0);
+
+  return { w: CARD.width, h, lines, cta, title: fact.title, reach: CARD.reach };
+}
+
+/**
+ * @returns { key, keyW, lines, h, taken } — or null for a card offering nothing.
+ *
+ * The label is wrapped, not truncated. The confirmation line names the setting
+ * *and* what it changed, which is nearly twice the length of the offer that
+ * preceded it, and the first version of this ran it straight off the side of
+ * the card.
+ */
+function ctaFor(ctx, fact, taken, inner) {
+  const cta = fact.act
+    ? { key: fact.act.key, label: fact.act.label, taken: false }
+    : fact.protect && (taken
+      ? { key: 'on', label: `${fact.protect.name} — ${fact.protect.does}`, taken: true }
+      : { key: 'E', label: fact.protect.name, taken: false });
+  if (!cta) return null;
+
+  ctx.font = CARD.keyFont;
+  cta.keyW = Math.max(26, ctx.measureText(cta.key).width + 16);
+
+  ctx.font = CARD.ctaFont;
+  cta.lines = wrapText(ctx, cta.label, inner - cta.keyW - 10);
+  cta.h = Math.max(22, cta.lines.length * CARD.ctaLine + CARD.ctaPad * 2 - 8);
+  return cta;
 }
 
 /**
@@ -447,10 +516,15 @@ export function drawFactCard(ctx, layout, x, y, appear, tone = 'fact') {
 
   ctx.fillStyle = 'rgba(247, 239, 234, 0.93)';
   ctx.font = CARD.bodyFont;
+  const bodyTop = top + CARD.padding + 18 + CARD.gap;
   layout.lines.forEach((line, i) => {
-    ctx.fillText(line, left + CARD.padding,
-      top + CARD.padding + 18 + CARD.gap + (i + 1) * CARD.lineHeight - 6);
+    ctx.fillText(line, left + CARD.padding, bodyTop + (i + 1) * CARD.lineHeight - 6);
   });
+
+  if (layout.cta) {
+    drawCta(ctx, layout.cta, left + CARD.padding,
+      bodyTop + layout.lines.length * CARD.lineHeight + CARD.ctaGap, accent);
+  }
 
   ctx.restore();
 }
