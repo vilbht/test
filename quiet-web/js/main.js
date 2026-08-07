@@ -425,42 +425,42 @@ function drawSpinFrame(ix, iy, angle, mark, fade, alpha) {
 }
 
 /**
- * The privacy fact, floating over the beacon that produced it.
+ * The card — a beacon's fact, or a warning about a tracker — floating over
+ * whatever raised it.
  *
- * Drawn inside the camera transform so it belongs to the world rather than the
- * window, then clamped back into view — a beacon can sit near enough to the edge
- * of the screen that a 336px card would hang half off it, and a fact you cannot
- * finish reading is worse than no fact.
+ * Positioned purely in world space, with no clamping back into the viewport.
+ * An earlier version nudged a card near the edge of the frame back on screen so
+ * it could always be read in full, and the effect was that running east dragged
+ * the card along the top of the window like a HUD element. It stopped belonging
+ * to the beacon and started belonging to the camera.
+ *
+ * So it stays where it was said. Run on and it slides off the left edge and is
+ * gone; that is the point. Nothing is missed by it — the card outlives the
+ * player's presence by several seconds, so it is there to read for as long as
+ * you care to stand and read it.
+ *
+ * Vertical framing needs no clamp either, and never did: the camera holds the
+ * fox at a fixed fraction of the viewport height, so anything anchored near
+ * ground level lands in the same band of sky every time.
  */
 function drawFact() {
   const at = run.factAt;
   if (!run.fact || !at) return;
 
-  const life = RULES.factSeconds;
-  const elapsed = life - run.factTimer;
+  const elapsed = RULES.factSeconds - run.factTimer;
   const appear = Math.min(
     Math.min(1, elapsed / 0.32),          // rises into place
     Math.min(1, run.factTimer / 0.7),     // and fades on the way out
   );
   if (appear <= 0.01) return;
 
-  const layout = layoutFactCard(ctx, run.fact);
-
   // Clear of whatever raised the card. A beacon speaks from its lantern's top
   // point, 86px up; a tracker is already floating, so the card sits just above
   // it. Either way the 16px pointer must not land inside the thing it points
   // at, or it cannot be seen at all.
-  const anchorX = at.x;
-  const anchorY = at.y - (run.factTone === 'warn' ? 26 : 86);
+  const y = at.y - (run.factTone === 'warn' ? 26 : 86);
 
-  const margin = 16;
-  const left = cam.x + margin;
-  const right = cam.x + VW - margin;
-  const x = Math.max(left + layout.w / 2, Math.min(right - layout.w / 2, anchorX));
-  // clear of the HUD pills along the top
-  const y = Math.max(cam.y + 86 + layout.h, anchorY);
-
-  drawFactCard(ctx, layout, x, y, appear, anchorX, run.factTone);
+  drawFactCard(ctx, layoutFactCard(ctx, run.fact), at.x, y, appear, run.factTone);
 }
 
 function drawWorld(zoneKey, ix) {

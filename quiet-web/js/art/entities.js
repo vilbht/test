@@ -380,9 +380,9 @@ function wrapText(ctx, text, maxWidth) {
 /**
  * Measure a card without drawing it.
  *
- * Split out because the caller has to know the box before it can decide where to
- * put it — a card anchored over a beacon near the edge of the level has to be
- * nudged back into view, and you cannot clamp a box you have not measured.
+ * Split out because the height depends on how the body wraps, and the caller
+ * draws the panel upward from its anchor — so the box has to be known before a
+ * single pixel of it can be placed.
  */
 /** Magenta, for anything the card is warning about rather than explaining. */
 const WARN = '#FF5C8A';
@@ -396,22 +396,17 @@ export function layoutFactCard(ctx, fact) {
 }
 
 /**
- * @param x, y   centre-bottom of the panel
+ * @param x, y   the point being spoken from: centre-bottom of the panel, and
+ *               where the pointer touches down. World space — the card is part
+ *               of the scene and scrolls off with it.
  * @param appear 0..1 — rises and fades in, so the card arrives rather than blinks
- * @param pointX where the tail points, in the same space as x. Separate from the
- *               panel's own centre because a card near the edge of the view gets
- *               nudged back on screen, and the pointer has to stay on the beacon
- *               when it does — otherwise the card detaches from what said it.
  */
-export function drawFactCard(ctx, layout, x, y, appear, pointX = x, tone = 'fact') {
+export function drawFactCard(ctx, layout, x, y, appear, tone = 'fact') {
   if (appear <= 0.01) return;
 
   const a = Math.max(0, Math.min(1, appear));
   const left = x - layout.w / 2;
   const top = y - layout.h;
-  // kept inside the panel's own width, so the tail never floats free of it
-  const px = Math.max(left + CARD.radius + CARD.pointer,
-    Math.min(left + layout.w - CARD.radius - CARD.pointer, pointX));
 
   ctx.save();
   ctx.globalAlpha = a;
@@ -424,9 +419,9 @@ export function drawFactCard(ctx, layout, x, y, appear, pointX = x, tone = 'fact
   // panel plus the pointer, as one path so the join is seamless
   ctx.beginPath();
   ctx.roundRect(left, top, layout.w, layout.h, CARD.radius);
-  ctx.moveTo(px - CARD.pointer, y - 1);
-  ctx.lineTo(px, y + layout.reach);
-  ctx.lineTo(px + CARD.pointer, y - 1);
+  ctx.moveTo(x - CARD.pointer, y - 1);
+  ctx.lineTo(x, y + layout.reach);
+  ctx.lineTo(x + CARD.pointer, y - 1);
   ctx.closePath();
 
   ctx.fillStyle = 'rgba(20, 10, 40, 0.92)';
