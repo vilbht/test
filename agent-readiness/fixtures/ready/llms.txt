@@ -1,0 +1,5 @@
+# Nordkette Sports
+Outdoor and running retailer, DE/AT/CH. Catalogue: /sitemap.xml
+Product data: schema.org Product JSON-LD on every PDP, GTIN-13 on every variant.
+Stock API: /api/availability?gtin=...
+Agentic checkout: /.well-known/agentic-commerce

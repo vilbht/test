@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>GlanzMode</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+</head>
+<body>
+<div id="root"></div>
+<script>
+// Everything is assembled client-side, which is exactly the failure mode.
+var P = {name:"Seidenkleid Mira", price:"249,00 €", stock:"Auf Lager", imgs:6};
+window.addEventListener('DOMContentLoaded', function () {
+  var html = '<header><a href="#">GlanzMode</a><a href="#">Kleider</a><a href="#">Schuhe</a></header>' +
+    '<main><h1>' + P.name + '</h1><p class="price">' + P.price + '</p><p>' + P.stock + '</p>';
+  for (var i = 0; i < P.imgs; i++) html += '<img src="/img/' + i + '.jpg">';
+  html += '<p>' + new Array(60).join('Fliessendes Seidenkleid aus 100 Prozent Maulbeerseide, in Italien gefertigt. ') + '</p>';
+  html += '<button onclick="addToCart()">In den Warenkorb</button>';
+  html += '<p>Bitte melden Sie sich an, um fortzufahren. Sign in to checkout.</p></main>';
+  document.getElementById('root').innerHTML = html;
+});
+function addToCart() { fetch('/api/cart', {method:'POST'}); }
+</script>
+</body>
+</html>
